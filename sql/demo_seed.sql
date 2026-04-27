@@ -14,15 +14,15 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- =============================================================================
 
 INSERT INTO users (id, username, password, fname, lname, mname, title, specialty,
-    email, active, authorized, info, facility_id, physician_type, see_auth)
+    email, active, authorized, info, facility_id, physician_type, see_auth, calendar)
 VALUES
 (10, 'sarah.chen', '$2y$10$abcdefghijklmnopqrstuuVGZDcCWGUlNwEJhSAzpEmFkAFVpS7yW',
     'Sarah', 'Chen', 'L', 'Dr.', 'Family Medicine',
-    'sarah.chen@clinic.local', 1, 1, 'Primary Care Physician', 3, 'DO', 1),
+    'sarah.chen@clinic.local', 1, 1, 'Primary Care Physician', 3, 'DO', 1, 1),
 (11, 'marcus.rivera', '$2y$10$abcdefghijklmnopqrstuuVGZDcCWGUlNwEJhSAzpEmFkAFVpS7yW',
     'Marcus', 'Rivera', 'A', 'Dr.', 'Internal Medicine',
-    'marcus.rivera@clinic.local', 1, 1, 'Internist', 3, 'MD', 1)
-ON DUPLICATE KEY UPDATE fname = VALUES(fname);
+    'marcus.rivera@clinic.local', 1, 1, 'Internist', 3, 'MD', 1, 1)
+ON DUPLICATE KEY UPDATE fname = VALUES(fname), calendar = 1;
 
 -- ACL: assign both providers to the Physicians group so they appear in dropdowns
 INSERT IGNORE INTO gacl_aro (id, section_value, value, order_value, name, hidden)
