@@ -72,6 +72,20 @@ Other available defaults at panel open:
 
 These cover UC-1 and UC-5 without any typing. Tapping one fires the query immediately.
 
+### Typeahead — Complete the Clinical Question, Not the Sentence
+
+For mid-encounter queries where the physician has a specific subject in mind (a drug, a lab test, a symptom), the input field supports typeahead. The physician types the noun; the UI suggests the clinical question around it.
+
+Examples:
+- Type `aspirin` → suggest **"Is aspirin compatible with [patient]'s current medications?"**
+- Type `A1C` → suggest **"Show me [patient]'s A1C trend"**
+- Type `metformin` → suggest **"What is [patient]'s current metformin dosage?"**
+- Type `last visit` → suggest **"When was [patient]'s last visit and why did they come in?"**
+
+The `[patient]` slot is filled automatically from whoever is currently in context (the patient whose chart is open, or the next scheduled patient). The physician never types the patient's name.
+
+This covers UC-2 and similar mid-encounter queries without requiring the physician to formulate a full sentence under time pressure. Typing two to five characters and tapping a suggestion is faster and less error-prone than composing a question from scratch.
+
 ### Contextual Follow-Up Suggestions
 
 After the initial response renders, the agent surfaces 2–3 follow-up prompts based on what it just said. These are generated as part of the same server response — they are ready the moment the physician finishes reading, not generated on demand.
