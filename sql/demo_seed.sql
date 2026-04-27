@@ -24,6 +24,17 @@ VALUES
     'marcus.rivera@clinic.local', 1, 1, 'Internist', 3, 'MD', 1)
 ON DUPLICATE KEY UPDATE fname = VALUES(fname);
 
+-- ACL: assign both providers to the Physicians group so they appear in dropdowns
+INSERT IGNORE INTO gacl_aro (id, section_value, value, order_value, name, hidden)
+VALUES
+(17, 'users', 'sarah.chen',    0, 'Sarah Chen',    0),
+(18, 'users', 'marcus.rivera', 0, 'Marcus Rivera', 0);
+
+INSERT IGNORE INTO gacl_groups_aro_map (group_id, aro_id)
+VALUES
+(13, 17),
+(13, 18);
+
 -- =============================================================================
 -- UPDATE EXISTING PATIENTS — assign to Dr. Chen, enrich demographics
 -- =============================================================================
