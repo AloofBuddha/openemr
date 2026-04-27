@@ -55,6 +55,8 @@ This checks "does this user have the `patients/demo` permission" — not "does t
 
 **For the agent:** Every service-layer call made by the agent must validate that the requesting clinician has a care relationship with the requested patient. This is not currently enforced and must be added.
 
+**Name collision risk:** Patient name resolution must be scoped to the requesting physician's panel before any data is retrieved. If Dr. Chen asks about "John Smith" and both Dr. Chen and Dr. Rivera have a patient named John Smith, the agent must resolve to Dr. Chen's John Smith — not whichever PID the database returns first. Resolving by name without panel-scoping first would return the wrong record with no error signal.
+
 ### OAuth2 / REST API
 
 OAuth2 is implemented via League OAuth2 Server with SMART on FHIR scope support. Bearer tokens are validated on every request. Scopes define resource-level permissions (`patient/*.read`) but not patient-instance restrictions — a system token with broad scopes can access all patients.

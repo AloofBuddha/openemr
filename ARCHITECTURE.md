@@ -119,6 +119,11 @@ class PatientAccessGuard
 }
 ```
 
+Name resolution — turning a physician's free-text query ("brief me on John Smith") into a PID — runs through the same guard. The lookup queries only patients with a care relationship to the requesting physician. If two physicians each have a patient named John Smith, each sees only their own. If the name is ambiguous within a single physician's panel (two patients with the same name), the agent asks for clarification rather than guessing.
+
+```php
+```
+
 This runs before any tool executes. An unauthorized access attempt logs the attempt and returns a refusal to the agent, not a data result.
 
 ---
