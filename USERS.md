@@ -40,6 +40,57 @@ The 90-second window is the constraint that makes the agent shape correct. There
 
 ---
 
+## Interaction Model
+
+### 90 Seconds Is a Hard Constraint
+
+The time between finishing one encounter note and knocking on the next door is 30–90 seconds. The agent interaction must fit entirely within that window — including opening the panel, triggering a query, waiting for the response, reading it, and optionally asking one follow-up. This is not a soft performance target. It is the constraint that determines every design decision: response length, streaming behavior, UI affordances, and follow-up handling.
+
+A rough budget assuming the worst case (90 seconds total):
+
+| Step | Budget |
+|------|--------|
+| Open panel, tap prompt | 5s |
+| Server: tool calls + LLM response (streaming starts) | 3–5s to first token |
+| Physician reads response | 20–30s |
+| Tap follow-up suggestion | 3s |
+| Server: follow-up response (streaming) | 3–5s to first token |
+| Physician reads follow-up | 20–30s |
+| **Total** | **~90s** |
+
+There is no time left for the physician to type. The model assumes: **one default prompt, one optional follow-up selected from suggestions, done.**
+
+### Prompt Affordances — No Typing Required
+
+When the physician opens the co-pilot panel, a set of pre-built prompt buttons are immediately visible — no cursor, no keyboard. The default for between-room use is always:
+
+> **"Brief me on my next patient"**
+
+Other available defaults at panel open:
+- "What do I need to know about today's schedule?"
+- "Who is my next patient?" *(lighter-weight version of the brief)*
+
+These cover UC-1 and UC-5 without any typing. Tapping one fires the query immediately.
+
+### Contextual Follow-Up Suggestions
+
+After the initial response renders, the agent surfaces 2–3 follow-up prompts based on what it just said. These are generated as part of the same server response — they are ready the moment the physician finishes reading, not generated on demand.
+
+Examples of contextual follow-ups after a patient brief:
+- "Show me Phil's full A1C trend" *(if A1C was mentioned)*
+- "What medications is he currently on?" *(if meds were referenced)*
+- "When was his last visit?" *(if the visit gap was flagged)*
+
+The physician taps one. There is no expectation of a third turn within the 90-second window.
+
+### What This Means for Architecture
+
+- Follow-up suggestions must be generated concurrently with the primary response, not after it — the agent includes them in the streamed payload.
+- Response length is constrained to what a physician can read in 20–30 seconds: 3–5 sentences for a patient brief, 1–2 sentences for a follow-up answer.
+- The panel must be openable and interactive within 1–2 seconds of invocation — no loading states that eat into the window.
+
+---
+
 ## Use Cases
 
 ### UC-1: Pre-Encounter Brief
