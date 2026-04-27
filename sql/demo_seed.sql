@@ -24,6 +24,18 @@ VALUES
     'marcus.rivera@clinic.local', 1, 1, 'Internist', 3, 'MD', 1, 1)
 ON DUPLICATE KEY UPDATE fname = VALUES(fname), calendar = 1;
 
+-- Passwords stored in users_secure (users.password is legacy, set to sentinel)
+-- Passwords: sarah.chen = Sarah1234!   marcus.rivera = Marcus1234!
+-- Re-run generates new hashes; change these to your own bcrypt hashes for production.
+INSERT INTO users_secure (id, username, password, last_update_password)
+VALUES
+(10, 'sarah.chen',    '$2y$12$placeholder_replace_with_real_hash_chen',    NOW()),
+(11, 'marcus.rivera', '$2y$12$placeholder_replace_with_real_hash_rivera',  NOW())
+ON DUPLICATE KEY UPDATE last_update_password = VALUES(last_update_password);
+
+-- Fix legacy password field
+UPDATE users SET password = 'NoLongerUsed' WHERE id IN (10, 11);
+
 -- ACL: assign both providers to the Physicians group so they appear in dropdowns
 INSERT IGNORE INTO gacl_aro (id, section_value, value, order_value, name, hidden)
 VALUES
@@ -451,17 +463,17 @@ VALUES (216, '14771-0', 'Fasting glucose', '118', 'mg/dL', '70-99', 'H', 'final'
 INSERT INTO openemr_postcalendar_events
     (pc_catid, pc_aid, pc_pid, pc_title, pc_time, pc_hometext,
      pc_eventDate, pc_startTime, pc_endTime, pc_duration, pc_alldayevent,
-     pc_apptstatus, pc_prefcatid, pc_multiple)
+     pc_apptstatus, pc_prefcatid, pc_multiple, pc_sharing, pc_facility, pc_eventstatus)
 VALUES
-(5, '10', '4',  'Diabetes follow-up',         '2026-04-27 09:00:00', 'A1C recheck post-Jardiance addition',   '2026-04-27', '09:00:00', '09:20:00', 1200, 0, '@', 0, 0),
-(5, '10', '7',  'Quarterly chronic review',   '2026-04-27 09:30:00', 'BP elevated at last visit; BMP + INR',  '2026-04-27', '09:30:00', '09:50:00', 1200, 0, '@', 0, 0),
-(5, '10', '1',  'Hypertension follow-up',     '2026-04-27 10:00:00', 'BP recheck 6 wks post Lisinopril uptitration', '2026-04-27', '10:00:00', '10:20:00', 1200, 0, '@', 0, 0),
-(5, '10', '11', 'Migraine management',        '2026-04-27 10:30:00', 'Propranolol efficacy check',            '2026-04-27', '10:30:00', '10:50:00', 1200, 0, '@', 0, 0),
-(5, '10', '6',  'Asthma medication check',    '2026-04-27 11:00:00', 'Follow-up after fluticasone addition',  '2026-04-27', '11:00:00', '11:20:00', 1200, 0, '@', 0, 0),
-(9, '10', '2',  'Annual wellness exam',       '2026-04-27 11:30:00', 'Overdue mammogram referral follow-up',  '2026-04-27', '11:30:00', '12:00:00', 1800, 0, '@', 0, 0),
-(5, '10', '3',  'Medication check',           '2026-04-27 13:00:00', 'Sertraline - has not been seen in 14 months', '2026-04-27', '13:00:00', '13:20:00', 1200, 0, '@', 0, 0),
-(5, '10', '5',  'Hypertension follow-up',     '2026-04-27 13:30:00', 'BP + lipid review',                    '2026-04-27', '13:30:00', '13:50:00', 1200, 0, '@', 0, 0),
-(5, '10', '12', 'CAD quarterly review',       '2026-04-27 14:00:00', 'Annual review; stress test result',     '2026-04-27', '14:00:00', '14:20:00', 1200, 0, '@', 0, 0),
-(5, '10', '8',  'Pre-diabetes check-in',      '2026-04-27 14:30:00', 'Weight and glucose recheck',            '2026-04-27', '14:30:00', '14:50:00', 1200, 0, '@', 0, 0);
+(5, '10', '4',  'Diabetes follow-up',         '2026-04-27 09:00:00', 'A1C recheck post-Jardiance addition',   '2026-04-27', '09:00:00', '09:20:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '7',  'Quarterly chronic review',   '2026-04-27 09:30:00', 'BP elevated at last visit; BMP + INR',  '2026-04-27', '09:30:00', '09:50:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '1',  'Hypertension follow-up',     '2026-04-27 10:00:00', 'BP recheck 6 wks post Lisinopril uptitration', '2026-04-27', '10:00:00', '10:20:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '11', 'Migraine management',        '2026-04-27 10:30:00', 'Propranolol efficacy check',            '2026-04-27', '10:30:00', '10:50:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '6',  'Asthma medication check',    '2026-04-27 11:00:00', 'Follow-up after fluticasone addition',  '2026-04-27', '11:00:00', '11:20:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(9, '10', '2',  'Annual wellness exam',       '2026-04-27 11:30:00', 'Overdue mammogram referral follow-up',  '2026-04-27', '11:30:00', '12:00:00', 1800, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '3',  'Medication check',           '2026-04-27 13:00:00', 'Sertraline - has not been seen in 14 months', '2026-04-27', '13:00:00', '13:20:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '5',  'Hypertension follow-up',     '2026-04-27 13:30:00', 'BP + lipid review',                    '2026-04-27', '13:30:00', '13:50:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '12', 'CAD quarterly review',       '2026-04-27 14:00:00', 'Annual review; stress test result',     '2026-04-27', '14:00:00', '14:20:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '8',  'Pre-diabetes check-in',      '2026-04-27 14:30:00', 'Weight and glucose recheck',            '2026-04-27', '14:30:00', '14:50:00', 1200, 0, '@', 0, 0, 1, 3, 1);
 
 SET FOREIGN_KEY_CHECKS = 1;
