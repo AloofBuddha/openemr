@@ -1,3 +1,59 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Context
+
+This is a fork of [OpenEMR](https://open-emr.org) being used to build a **Clinical Co-Pilot** — an AI agent embedded in the EHR that gives physicians a 90-second patient briefing between exam rooms. The project is a Gauntlet AI Week 1 sprint.
+
+## Where the Agent Code Lives
+
+The Clinical Co-Pilot is built as an OpenEMR custom module:
+
+```
+interface/modules/custom_modules/oe-module-clinical-copilot/
+```
+
+Reference any existing module in that directory (e.g., `oe-module-dashboard-context/`) for the expected file layout and registration patterns.
+
+Backend services go under `src/` using the `OpenEMR\` PSR-4 namespace. New AI/LLM service classes belong in `src/Services/` extending `BaseService`.
+
+## Required Deliverables
+
+**Sequencing constraint:** The audit is a hard gate — `AUDIT.md` must be complete before writing any agent code. `USERS.md` must be complete before `ARCHITECTURE.md`. The sequence is: run locally → deploy → audit → user profiles → architecture plan → build.
+
+Files at repo root:
+
+| File | Content |
+|------|---------|
+| `AUDIT.md` | Security, performance, architecture, data quality, HIPAA/compliance audit. ~500-word summary first. |
+| `USERS.md` | Narrow target user, concrete workflow, specific use cases, explicit justification for why agent > dashboard per case. Every agent capability must trace back to a use case here. |
+| `ARCHITECTURE.md` | AI integration plan drawn from audit findings: where agent lives, data access pattern, auth boundaries, verification strategy, tradeoffs. ~500-word summary first. |
+
+Additional submission deliverables (Early and Final):
+- **Eval dataset** — test suite covering failure modes, missing data, auth bypass attempts, adversarial inputs; not just happy-path cases
+- **AI cost analysis** — actual dev spend + projected costs at 100/1K/10K/100K users, including architectural changes needed at each scale
+- **Demo video** (3–5 min) with each submission
+- **Deployed application** — live and reachable; same infra used for final agent
+
+The agent itself must include:
+- Multi-turn conversational interface grounded in OpenEMR patient data
+- Verification layer: every claim attributed to a source record + domain constraint enforcement
+- Observability from day one: per-request step order, timing, tool failures, token costs
+- Eval suite covering failure modes (missing data, auth bypass attempts, out-of-scope queries)
+
+## Key OpenEMR APIs for the Agent
+
+Patient data is available via the internal FHIR REST API (`apis/`) and through direct service classes:
+
+- `OpenEMR\Services\PatientService` — demographics
+- `OpenEMR\Services\EncounterService` — encounter history
+- `OpenEMR\RestControllers\` — REST endpoints that the agent backend can call internally
+- FHIR endpoints documented in `FHIR_README.md`
+- Standard REST API documented in `API_README.md`
+
+---
+
 # OpenEMR Development Guide
 
 ## Project Structure

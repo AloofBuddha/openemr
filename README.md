@@ -1,79 +1,96 @@
-[![Syntax Status](https://github.com/openemr/openemr/actions/workflows/syntax.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/syntax.yml)
-[![Styling Status](https://github.com/openemr/openemr/actions/workflows/styling.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/styling.yml)
-[![Testing Status](https://github.com/openemr/openemr/actions/workflows/test.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/test.yml)
-[![JS Unit Testing Status](https://github.com/openemr/openemr/actions/workflows/js-test.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/js-test.yml)
-[![PHPStan](https://github.com/openemr/openemr/actions/workflows/phpstan.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/phpstan.yml)
-[![Rector](https://github.com/openemr/openemr/actions/workflows/rector.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/rector.yml)
-[![ShellCheck](https://github.com/openemr/openemr/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/shellcheck.yml)
-[![Docker Compose Linting](https://github.com/openemr/openemr/actions/workflows/docker-compose-lint.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/docker-compose-lint.yml)
-[![Dockerfile Linting](https://github.com/openemr/openemr/actions/workflows/hadolint.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/hadolint.yml)
-[![Isolated Tests](https://github.com/openemr/openemr/actions/workflows/isolated-tests.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/isolated-tests.yml)
-[![Inferno Certification Test](https://github.com/openemr/openemr/actions/workflows/inferno-test.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/inferno-test.yml)
-[![Composer Checks](https://github.com/openemr/openemr/actions/workflows/composer.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/composer.yml)
-[![Composer Require Checker](https://github.com/openemr/openemr/actions/workflows/composer-require-checker.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/composer-require-checker.yml)
-[![API Docs Freshness Checks](https://github.com/openemr/openemr/actions/workflows/api-docs.yml/badge.svg)](https://github.com/openemr/openemr/actions/workflows/api-docs.yml)
-[![codecov](https://codecov.io/gh/openemr/openemr/graph/badge.svg?token=7Eu3U1Ozdq)](https://codecov.io/gh/openemr/openemr)
+# Clinical Co-Pilot
 
-[![Backers on Open Collective](https://opencollective.com/openemr/backers/badge.svg)](#backers) [![Sponsors on Open Collective](https://opencollective.com/openemr/sponsors/badge.svg)](#sponsors)
+An AI agent embedded in OpenEMR that gives physicians a 90-second patient briefing between exam rooms. Built as part of the Gauntlet AI Week 1 AgentForge sprint.
 
-# OpenEMR
+**Live demo:** http://198.211.103.246.nip.io
 
-[OpenEMR](https://open-emr.org) is a Free and Open Source electronic health records and medical practice management application. It features fully integrated electronic health records, practice management, scheduling, electronic billing, internationalization, free support, a vibrant community, and a whole lot more. It runs on Windows, Linux, Mac OS X, and many other platforms.
+---
 
-### Contributing
+## What it does
 
-OpenEMR is a leader in healthcare open source software and comprises a large and diverse community of software developers, medical providers and educators with a very healthy mix of both volunteers and professionals. [Join us and learn how to start contributing today!](https://open-emr.org/wiki/index.php/FAQ#How_do_I_begin_to_volunteer_for_the_OpenEMR_project.3F)
+Dr. Sarah Chen sees 18–22 patients a day. Between rooms she has 90 seconds to reconstruct who the next patient is, why they're here, and what changed since the last visit — across 4–6 screens in the EHR. This agent collapses that into a single conversational query.
 
-> Already comfortable with git? Check out [CONTRIBUTING.md](CONTRIBUTING.md) for quick setup instructions and requirements for contributing to OpenEMR by resolving a bug or adding an awesome feature 😊.
+Use cases documented in [`USERS.md`](USERS.md).
 
-### Support
+---
 
-Community and Professional support can be found [here](https://open-emr.org/wiki/index.php/OpenEMR_Support_Guide).
+## Running locally
 
-Extensive documentation and forums can be found on the [OpenEMR website](https://open-emr.org) that can help you to become more familiar about the project 📖.
+### Prerequisites
 
-### Reporting Issues and Bugs
+- Docker + Docker Compose
+- ~4 GB free disk space
 
-Report these on the [Issue Tracker](https://github.com/openemr/openemr/issues). If you are unsure if it is an issue/bug, then always feel free to use the [Forum](https://community.open-emr.org/) and [Chat](https://www.open-emr.org/chat/) to discuss about the issue 🪲.
+### Start the stack
 
-### Reporting Security Vulnerabilities
-
-Check out [SECURITY.md](.github/SECURITY.md)
-
-### API
-
-Check out [API_README.md](API_README.md)
-
-### Docker
-
-Check out [DOCKER_README.md](DOCKER_README.md)
-
-### FHIR
-
-Check out [FHIR_README.md](FHIR_README.md)
-
-### For Developers
-
-If using OpenEMR directly from the code repository, then the following commands will build OpenEMR (Node.js version 24.* is required) :
-
-```shell
-composer install --no-dev
-npm install
-npm run build
-composer dump-autoload -o
+```bash
+cd docker/development-easy
+docker compose up --detach --wait
 ```
 
-### Contributors
+First run takes 3–5 minutes while the container initializes OpenEMR.
 
-This project exists thanks to all the people who have contributed. [[Contribute]](CONTRIBUTING.md).
-<a href="https://github.com/openemr/openemr/graphs/contributors"><img src="https://opencollective.com/openemr/contributors.svg?width=890" /></a>
+### Load demo data
 
+From the repo root:
 
-### Sponsors
+```bash
+scripts/demo_load.sh
+```
 
-Thanks to our [ONC Certification Major Sponsors](https://www.open-emr.org/wiki/index.php/OpenEMR_Certification_Stage_III_Meaningful_Use#Major_sponsors)!
+This loads Cedar Family Medicine — two physicians, 18 patients, full clinical histories. To wipe and reload from scratch:
 
+```bash
+scripts/demo_load.sh --reset
+```
 
-### License
+### Access
 
-[GNU GPL](LICENSE)
+| URL | Purpose |
+|-----|---------|
+| http://localhost:8300 | OpenEMR application |
+| http://localhost:8310 | phpMyAdmin (DB browser) |
+
+### Credentials
+
+| Login | Password | Role |
+|-------|----------|------|
+| `sarah.chen` | `Sarah1234!` | Dr. Sarah Chen — Family Medicine (13 patients) |
+| `marcus.rivera` | `Marcus1234!` | Dr. Marcus Rivera — Internal Medicine (5 patients) |
+| `admin` | `pass` | Admin |
+
+---
+
+## Demo practice
+
+**Cedar Family Medicine** — 4801 Burnet Road Suite 200, Austin TX 78756
+
+Dr. Chen's panel includes patients across hypertension, diabetes, COPD, CAD, anxiety, and more — all with multi-year encounter histories, lab trends, active medications, and today's appointments pre-loaded on the calendar.
+
+---
+
+## Project structure
+
+```
+sql/
+  demo_seed.sql      Base patients, providers, encounters, labs, meds
+  demo_augment.sql   SOAP notes + vitals for all encounters
+  demo_augment2.sql  UI config, Dr. Rivera's clinical data, lab fixes
+  demo_augment3.sql  procedure_order_code (required for Labs card), SOAP backfill
+  demo_augment4.sql  UC-specific data (Wanda referral/Rx, Susan mammogram referral)
+scripts/
+  demo_load.sh       Single command to load all demo data
+interface/modules/custom_modules/oe-module-clinical-copilot/   (agent module)
+USERS.md             Target user, workflow, and use cases
+AUDIT.md             Security, performance, and HIPAA audit
+ARCHITECTURE.md      AI integration plan
+```
+
+---
+
+## Development docs
+
+- [`CLAUDE.md`](CLAUDE.md) — full development guide: Docker setup, test commands, PHP coding standards
+- [`USERS.md`](USERS.md) — use cases with justification for agent vs. dashboard
+- [`AUDIT.md`](AUDIT.md) — audit findings that inform architecture decisions
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — AI integration plan

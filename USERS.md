@@ -1,8 +1,19 @@
 # Users & Use Cases
 
+## Practice Context
+
+**Cedar Family Medicine** — independent primary care and internal medicine practice, 4801 Burnet Road Suite 200, Austin TX 78756. Two attending physicians sharing a patient panel of approximately 20 active patients in this demo environment (representing a subset of a typical 300–500 patient panel per physician in a real practice).
+
+- **Dr. Sarah Chen, DO** — Family Medicine. Primary care for 13 patients. Typical day: 10 scheduled appointments, 9-hour clinic. Login: `sarah.chen` / `Sarah1234!`
+- **Dr. Marcus Rivera, MD** — Internal Medicine. Primary care for 5 patients with more complex chronic disease profiles. Typical day: 5 scheduled appointments. Login: `marcus.rivera` / `Marcus1234!`
+
+Both physicians use OpenEMR for charting, scheduling, and prescriptions. Each sees only their own patients in the agent; the authorization boundary between their panels is a core demo scenario.
+
+---
+
 ## Target User
 
-**Dr. Sarah Chen — Primary Care Physician, independent family practice, 18–22 scheduled patients per day.**
+**Dr. Sarah Chen — Family Medicine Physician, Cedar Family Medicine, 18–22 scheduled patients per day.**
 
 Sarah runs a 9-hour clinic day with appointments every 20–30 minutes. Her patient panel is longitudinal — she's seen most of them multiple times across years. She uses OpenEMR for charting, scheduling, and prescriptions.
 
