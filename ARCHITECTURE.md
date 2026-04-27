@@ -173,20 +173,73 @@ PHI never appears in the system prompt. It arrives only in tool results, which a
 
 ## 6. Verification System
 
-Two layers, applied before the response reaches the physician:
+Every factual claim in the agent's response is clickable. Clicking opens the source record in a side panel with the relevant field highlighted — the same pattern used in legal AI tools like Harvey and Casetext. A physician who sees "Phil is taking lisinopril 10mg" can click it and see the actual prescriptions row, lisinopril highlighted. There is no ambiguity about whether a claim is sourced.
 
-**Layer 1 — Source attribution (prompt-enforced):**  
-The system prompt requires the model to cite a source record for every factual claim. This is enforced by instruction, not post-hoc parsing. A claim without a citation is an implicit signal to the physician that it is the model's inference, not a record fact.
+### Output Format — Structured Claims, Not Free Text
 
-**Layer 2 — Structural fact-checking (post-processing):**  
-`SourceAttributionChecker` extracts all cited data points from the response and verifies each against the tool results that were actually returned. If the model cites a medication that was not in the `get_medications` result, the claim is flagged with a warning before display:
+The agent returns a JSON structure of claims, each with a citation ID — not a markdown paragraph:
+
+```json
+{
+  "response": [
+    {
+      "text": "Phil is taking lisinopril 10mg daily",
+      "citation_id": "rx_042",
+      "verified": true
+    },
+    {
+      "text": "His last A1C was 7.4 on March 12, 2026",
+      "citation_id": "lab_019",
+      "verified": true
+    },
+    {
+      "text": "No documented specialist follow-up since the cardiology referral",
+      "citation_id": null,
+      "verified": false
+    }
+  ]
+}
+```
+
+Verified claims with a `citation_id` render as clickable links. Unverified claims render with a `⚠` prefix and distinct styling.
+
+### Citation Registry
+
+The backend builds a citation registry from tool results during the request — a map from citation ID to the exact database record and field:
+
+```json
+{
+  "rx_042": {
+    "table": "prescriptions",
+    "record_id": 42,
+    "field": "drug",
+    "display_label": "Prescription — Lisinopril 10mg QD",
+    "highlighted_value": "Lisinopril 10mg",
+    "context": {
+      "drug": "Lisinopril",
+      "dosage": "10mg",
+      "start_date": "2026-01-15",
+      "active": 1,
+      "provider": "Dr. Chen"
+    }
+  }
+}
+```
+
+Tool results are structured with record IDs so every piece of data can be traced back. The LLM is prompted to reference citation IDs from this registry — it cannot cite a record that was not returned by a tool.
+
+### Verification Layers
+
+**Layer 1 — Prompt-enforced sourcing:** The model only uses citation IDs provided in its context. No citation ID = no sourced claim.
+
+**Layer 2 — Structural cross-check (post-processing):** `SourceAttributionChecker` verifies every `citation_id` in the response exists in the registry and that the cited value matches. Mismatches are downgraded to `verified: false` before display:
 
 ```
-⚠ "lisinopril 20mg" — not found in current medication records. Verify manually.
+⚠ "lisinopril 20mg" — source record shows 10mg. Verify manually.
 ```
 
-**What this catches:** Hallucinated specifics (wrong dosages, wrong dates, fabricated lab values).  
-**What this does not catch:** Errors of omission — if a medication exists in a system the agent doesn't query (e.g., an external pharmacy system), the agent won't know to flag its absence. This limitation is documented in the UI.
+**What this catches:** Hallucinated specifics — wrong dosages, wrong dates, fabricated values, wrong record references.  
+**What this does not catch:** Errors of omission — if a medication exists outside OpenEMR, the agent won't know to flag its absence. Documented in the UI on every response.
 
 ---
 
