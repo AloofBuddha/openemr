@@ -36,6 +36,9 @@ ON DUPLICATE KEY UPDATE last_update_password = VALUES(last_update_password);
 -- Fix legacy password field
 UPDATE users SET password = 'NoLongerUsed' WHERE id IN (10, 11);
 
+-- groups table: required by AuthUtils.getAuthGroupForUser — without this login fails
+INSERT IGNORE INTO `groups` (name, user) VALUES ('Default', 'sarah.chen'), ('Default', 'marcus.rivera');
+
 -- ACL: assign both providers to the Physicians group so they appear in dropdowns
 INSERT IGNORE INTO gacl_aro (id, section_value, value, order_value, name, hidden)
 VALUES
