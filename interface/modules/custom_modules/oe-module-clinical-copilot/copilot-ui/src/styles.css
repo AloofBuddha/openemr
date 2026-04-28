@@ -133,26 +133,27 @@
 }
 .copilot-content > *:last-child { margin-bottom: 0; }
 
-/* ── Citation buttons (superscript, inline) ──────────────────────────────── */
+/* ── Inline citation text (clickable phrase, no numbers) ─────────────────── */
 
-.copilot-cite {
+.copilot-cite-text {
   display: inline;
   background: none;
-  border: 1px solid #1a6094;
-  border-radius: 3px;
-  color: #1a6094;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  padding: 1px 3px;
-  margin-left: 2px;
+  border: none;
+  border-bottom: 1px dashed #1a6094;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  margin: 0;
   cursor: pointer;
-  vertical-align: super;
-  white-space: nowrap;
   transition: background 0.1s, color 0.1s;
 }
-.copilot-cite:hover,
-.copilot-cite:focus { background: #1a6094; color: #fff; outline: none; }
+.copilot-cite-text:hover,
+.copilot-cite-text:focus {
+  background: #e8f0f8;
+  border-bottom-style: solid;
+  outline: none;
+  border-radius: 2px;
+}
 
 /* ── Source drawer (right panel) ─────────────────────────────────────────── */
 

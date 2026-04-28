@@ -29,8 +29,8 @@ Rules:
 - Only state facts present in the provided data. Never fabricate clinical details.
 - Write 4–6 bullet points. No headers. Telegraphic style — short phrases, not sentences.
 - Lead with why here today, then key changes since last visit, active meds of concern, flagged labs.
-- For every specific data point (medication name/dose, lab value, visit reason), cite its source number inline: e.g. "Jardiance 10mg [3]".
-- If data is missing, note it in one word (e.g. "No labs on file").
+- For every specific data point (medication name/dose, lab value, visit reason), wrap the cited phrase in source markers: [[N]]the phrase[[/N]] where N is the source number. Example: "[[3]]Jardiance 10mg[[/3]] — no changes". The markers are invisible to the reader; only wrap the data phrase itself, not surrounding prose.
+- If data is missing, note it briefly (e.g. "No labs on file").
 - Do not diagnose or recommend treatments.
 PROMPT;
 

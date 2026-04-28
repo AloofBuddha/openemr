@@ -101,10 +101,14 @@ function useBriefStream(pid: number, apiUrl: string, csrfToken: string) {
 
   const html = useMemo(() => {
     if (!text) return '';
-    const raw = marked.parse(text) as string;
-    // Replace [N] citation markers with clickable superscript buttons
-    return raw.replace(/\[(\d+)\]/g, '<button class="copilot-cite" data-src="$1">$1</button>');
-  }, [text]);
+    // During streaming, strip markers so text reads cleanly; after done, wrap phrase as clickable
+    const isStreaming = status === 'loading' || status === 'streaming';
+    const processed = isStreaming
+      ? text.replace(/\[\[(\d+)\]\]/g, '').replace(/\[\[\/\d+\]\]/g, '')
+      : text.replace(/\[\[(\d+)\]\]([\s\S]*?)\[\[\/\1\]\]/g,
+          '<button class="copilot-cite-text" data-src="$1">$2</button>');
+    return marked.parse(processed) as string;
+  }, [text, status]);
 
   return { html, status, error, sources, activeSource, setActiveSource, requestBrief };
 }
