@@ -1,0 +1,16 @@
+{
+    "name": "openemr/oe-module-clinical-copilot",
+    "type": "openemr-module",
+    "description": "Clinical Co-Pilot: AI-powered patient briefing for physicians",
+    "autoload": {
+        "psr-4": {
+            "OpenEMR\\Modules\\ClinicalCopilot\\": "src/"
+        }
+    },
+    "extra": {
+        "openemr": {
+            "type": "custom-module",
+            "directory": "oe-module-clinical-copilot"
+        }
+    }
+}
