@@ -20,19 +20,18 @@ use OpenEMR\Modules\ClinicalCopilot\Observability\AgentAuditLogger;
 class Orchestrator
 {
     private const MODEL = 'claude-sonnet-4-6';
-    private const MAX_TOKENS = 1024;
+    private const MAX_TOKENS = 512;
 
     private const SYSTEM_PROMPT = <<<'PROMPT'
-You are a Clinical Co-Pilot embedded in OpenEMR. You assist physicians by synthesizing patient data from their EHR system.
+You are a Clinical Co-Pilot embedded in an EHR. Give physicians a fast, skimmable pre-encounter brief.
 
 Rules:
-- Only state facts present in the patient data provided. Never fabricate clinical details.
-- Be concise — the physician has 90 seconds between exam rooms.
-- Structure your brief: (1) Why here today, (2) What changed since last visit, (3) Active medications (flag any concerns), (4) Recent labs (flag abnormals), (5) 2-3 suggested follow-up actions.
-- If data is missing or incomplete, say so explicitly rather than omitting it silently.
-- Do not diagnose. Do not recommend treatments. Surface data only.
-- Use plain language, not clinical jargon.
-- Note: "This brief is only as complete as the EHR data. Undocumented medications or conditions will not appear."
+- Only state facts present in the provided data. Never fabricate clinical details.
+- Write 4–6 bullet points. No headers. Telegraphic style — short phrases, not sentences.
+- Lead with why here today, then key changes since last visit, active meds of concern, flagged labs.
+- For every specific data point (medication name/dose, lab value, visit reason), cite its source number inline: e.g. "Jardiance 10mg [3]".
+- If data is missing, note it in one word (e.g. "No labs on file").
+- Do not diagnose or recommend treatments.
 PROMPT;
 
     public function __construct(
@@ -40,11 +39,6 @@ PROMPT;
         private readonly AgentAuditLogger $auditLogger,
     ) {}
 
-    /**
-     * Generate a streaming patient brief. Outputs SSE events directly to the
-     * HTTP response. Caller must set SSE headers and disable output buffering
-     * before calling this method.
-     */
     public function streamBrief(int $patientId, int $physicianId, bool $forceRefresh = false): void
     {
         $startMs = (int) (microtime(true) * 1000);
@@ -59,6 +53,8 @@ PROMPT;
         if (!$forceRefresh) {
             $cached = $this->fetchCache($patientId, $physicianId);
             if ($cached !== null) {
+                $cachedSources = json_decode($cached['citation_registry'] ?? '{}', true) ?? [];
+                $this->emitEvent('sources', ['sources' => $cachedSources]);
                 $this->emitEvent('cached', ['text' => $cached['brief_text']]);
                 $this->emitEvent('done', ['cached' => true]);
                 return;
@@ -77,8 +73,9 @@ PROMPT;
             'result_size' => strlen(json_encode($patientData) ?: ''),
         ]];
 
-        // Build prompt
-        $userMessage = $this->buildUserMessage($patientData);
+        // Build prompt + source registry; emit sources before streaming so citations are live immediately
+        ['message' => $userMessage, 'sources' => $sources] = $this->buildUserMessage($patientData);
+        $this->emitEvent('sources', ['sources' => $sources]);
 
         // Stream from Anthropic
         $fullText = '';
@@ -100,12 +97,10 @@ PROMPT;
 
         $totalMs = (int) (microtime(true) * 1000) - $startMs;
 
-        // Cache the result
         if (!empty($fullText)) {
-            $this->saveCache($patientId, $physicianId, $patientData, $fullText);
+            $this->saveCache($patientId, $physicianId, $patientData, $fullText, $sources);
         }
 
-        // Audit log
         $this->auditLogger->log(
             physicianId:   $physicianId,
             patientId:     $patientId,
@@ -126,76 +121,114 @@ PROMPT;
         ]);
     }
 
-    private function buildUserMessage(array $patientData): string
+    /**
+     * Builds the user message and a numbered source registry for citations.
+     *
+     * @param array<string,mixed> $patientData
+     * @return array{message: string, sources: array<string, array{type: string, label: string, detail: string}>}
+     */
+    private function buildUserMessage(array $patientData): array
     {
         $demo = $patientData['demographics'];
         $name = $demo['name'] ?? 'Unknown';
         $age  = $demo['age'] ?? '';
         $sex  = $demo['sex'] ?? '';
 
+        $sources = [];
+        $sourceIndex = 1;
+        $sourceLines = [];
+
+        // [1] Today's appointment
         $appt = $patientData['today_appointment'];
-        $apptReason = $appt ? ($appt['reason'] ?: 'Not specified') : 'No appointment found today';
+        if ($appt) {
+            $reason = $appt['reason'] ?: 'Not specified';
+            $time   = $appt['time'] ?? '';
+            $sources[(string) $sourceIndex] = [
+                'type'   => 'appointment',
+                'label'  => "Today's appointment" . ($time ? " at {$time}" : ''),
+                'detail' => "Reason: {$reason}",
+            ];
+            $sourceLines[] = "[{$sourceIndex}] Today's appointment: {$reason}" . ($time ? " at {$time}" : '');
+        } else {
+            $sourceLines[] = "[{$sourceIndex}] Today's appointment: none on file";
+            $sources[(string) $sourceIndex] = ['type' => 'appointment', 'label' => "Today's appointment", 'detail' => 'None on file'];
+        }
+        $apptRef = $sourceIndex++;
 
+        // [N] Last encounter
         $enc = $patientData['last_encounter'];
-        $lastEncDate = $enc ? ($enc['date'] ?? 'unknown date') : 'No prior encounters';
-        $soap = $enc['soap'] ?? [];
-
-        $meds = $patientData['active_medications'];
-        $labs = $patientData['recent_labs'];
-
-        $medsText = empty($meds)
-            ? 'No active medications documented'
-            : implode("\n", array_map(
-                fn($m) => "- {$m['drug']} {$m['dosage']} {$m['unit']} ({$m['interval']})" . ($m['note'] ? " — {$m['note']}" : ''),
-                $meds
-            ));
-
-        $labsText = empty($labs)
-            ? 'No recent labs documented'
-            : implode("\n", array_map(
-                fn($l) => "- {$l['test']}: {$l['value']} {$l['units']}" .
-                    ($l['range'] ? " (ref: {$l['range']})" : '') .
-                    ($l['abnormal'] ? " [ABNORMAL: {$l['abnormal']}]" : '') .
-                    " — {$l['date_collected']}",
-                $labs
-            ));
-
-        $soapText = '';
         if ($enc) {
-            $soapText = "\nLast encounter ({$lastEncDate}):";
-            if ($soap['subjective']) {
-                $soapText .= "\n  Subjective: {$soap['subjective']}";
-            }
-            if ($soap['assessment']) {
-                $soapText .= "\n  Assessment: {$soap['assessment']}";
-            }
-            if ($soap['plan']) {
-                $soapText .= "\n  Plan: {$soap['plan']}";
+            $encDate   = $enc['date'] ?? 'unknown';
+            $assessment = trim($enc['soap']['assessment'] ?? '');
+            $plan       = trim($enc['soap']['plan'] ?? '');
+            $detail     = $assessment ?: ($enc['reason'] ?? 'No SOAP note');
+            $sources[(string) $sourceIndex] = [
+                'type'   => 'encounter',
+                'label'  => "Last encounter ({$encDate})",
+                'detail' => ($assessment ? "Assessment: {$assessment}" : 'No assessment') . ($plan ? " — Plan: {$plan}" : ''),
+            ];
+            $sourceLines[] = "[{$sourceIndex}] Last encounter ({$encDate}): {$detail}";
+        } else {
+            $sources[(string) $sourceIndex] = ['type' => 'encounter', 'label' => 'Last encounter', 'detail' => 'No prior encounters'];
+            $sourceLines[] = "[{$sourceIndex}] Last encounter: none";
+        }
+        $sourceIndex++;
+
+        // Medications
+        $meds = $patientData['active_medications'];
+        $medRefs = [];
+        if (empty($meds)) {
+            $sourceLines[] = "[{$sourceIndex}] Medications: none documented";
+            $sources[(string) $sourceIndex] = ['type' => 'medication', 'label' => 'Active medications', 'detail' => 'None documented'];
+            $sourceIndex++;
+        } else {
+            foreach ($meds as $med) {
+                $label  = trim("{$med['drug']} {$med['dosage']} {$med['unit']}");
+                $detail = trim("Route: {$med['route']} — Interval: {$med['interval']}" . ($med['note'] ? " — {$med['note']}" : ''));
+                $sources[(string) $sourceIndex] = ['type' => 'medication', 'label' => $label, 'detail' => $detail ?: 'Active prescription'];
+                $sourceLines[] = "[{$sourceIndex}] Medication: {$label}" . ($med['interval'] ? " ({$med['interval']})" : '');
+                $medRefs[] = $sourceIndex;
+                $sourceIndex++;
             }
         }
 
-        return <<<TEXT
-Generate a pre-encounter brief for this patient.
+        // Labs
+        $labs = $patientData['recent_labs'];
+        if (empty($labs)) {
+            $sourceLines[] = "[{$sourceIndex}] Labs: none documented";
+            $sources[(string) $sourceIndex] = ['type' => 'lab', 'label' => 'Recent labs', 'detail' => 'None on file'];
+            $sourceIndex++;
+        } else {
+            foreach ($labs as $lab) {
+                $label  = "{$lab['test']}: {$lab['value']} {$lab['units']}";
+                $detail = ($lab['range'] ? "Ref: {$lab['range']}" : '') .
+                          ($lab['abnormal'] ? " — ABNORMAL: {$lab['abnormal']}" : '') .
+                          ($lab['date_collected'] ? " — {$lab['date_collected']}" : '');
+                $sources[(string) $sourceIndex] = [
+                    'type'   => 'lab',
+                    'label'  => $label,
+                    'detail' => trim($detail, " \t\n\r\0\x0B—"),
+                ];
+                $flag = $lab['abnormal'] ? " [ABNORMAL: {$lab['abnormal']}]" : '';
+                $sourceLines[] = "[{$sourceIndex}] Lab: {$label}{$flag}" . ($lab['date_collected'] ? " — {$lab['date_collected']}" : '');
+                $sourceIndex++;
+            }
+        }
+
+        $sourcesBlock = implode("\n", $sourceLines);
+
+        $message = <<<TEXT
+Brief this patient. Cite source numbers inline (e.g. [1]) next to each fact.
 
 PATIENT: {$name}, {$age}y {$sex}
 
-TODAY'S VISIT REASON: {$apptReason}
-{$soapText}
-
-ACTIVE MEDICATIONS:
-{$medsText}
-
-RECENT LABS:
-{$labsText}
-
-Note: This is the complete data available in OpenEMR for this patient. Brief me in 90 seconds or less.
+SOURCES:
+{$sourcesBlock}
 TEXT;
+
+        return ['message' => $message, 'sources' => $sources];
     }
 
-    /**
-     * Makes a streaming request to the Anthropic Messages API.
-     * Calls $onDelta for each text token, $onUsage once with final token counts.
-     */
     private function streamAnthropicApi(
         string $apiKey,
         string $userMessage,
@@ -224,11 +257,10 @@ TEXT;
             CURLOPT_RETURNTRANSFER => false,
             CURLOPT_WRITEFUNCTION  => function ($ch, $chunk) use (&$buffer, $onDelta, $onUsage): int {
                 $buffer .= $chunk;
-                // Process complete SSE lines
                 while (($pos = strpos($buffer, "\n")) !== false) {
-                    $line = substr($buffer, 0, $pos);
+                    $line   = substr($buffer, 0, $pos);
                     $buffer = substr($buffer, $pos + 1);
-                    $line = trim($line);
+                    $line   = trim($line);
                     if (!str_starts_with($line, 'data: ')) {
                         continue;
                     }
@@ -245,22 +277,14 @@ TEXT;
                         $text = $event['delta']['text'] ?? '';
                         if ($text !== '') {
                             $onDelta($text);
-                            // Flush immediately for streaming UX
                             if (ob_get_level() > 0) {
                                 ob_flush();
                             }
                             flush();
                         }
-                    } elseif ($type === 'message_delta') {
-                        $usage = $event['usage'] ?? [];
-                        if (isset($usage['output_tokens'])) {
-                            // input_tokens come from message_start; we use message_delta for output
-                        }
                     } elseif ($type === 'message_start') {
                         $usage = $event['message']['usage'] ?? [];
                         $onUsage((int) ($usage['input_tokens'] ?? 0), 0);
-                    } elseif ($type === 'message_stop') {
-                        // Final output token count is in the message_delta before stop
                     }
                 }
                 return strlen($chunk);
@@ -268,7 +292,7 @@ TEXT;
             CURLOPT_TIMEOUT        => 60,
         ]);
 
-        $result = curl_exec($ch);
+        $result   = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
         if ($result === false || $httpCode !== 200) {
@@ -292,9 +316,8 @@ TEXT;
 
     private function fetchCache(int $patientId, int $physicianId): ?array
     {
-        // Cache is valid for today's date only
         $row = sqlQuery(
-            "SELECT brief_text, data_snapshot_hash, generated_at
+            "SELECT brief_text, citation_registry, data_snapshot_hash, generated_at
              FROM copilot_brief_cache
              WHERE patient_id = ? AND physician_id = ? AND appointment_date = CURDATE()
              ORDER BY generated_at DESC LIMIT 1",
@@ -303,7 +326,6 @@ TEXT;
         if (empty($row)) {
             return null;
         }
-        // Check if cache is recent enough (within 30 minutes)
         $generatedAt = strtotime($row['generated_at'] ?? '');
         if ($generatedAt && (time() - $generatedAt) > 1800) {
             return null;
@@ -311,25 +333,31 @@ TEXT;
         return $row;
     }
 
-    private function saveCache(int $patientId, int $physicianId, array $patientData, string $briefText): void
-    {
-        $appointment = $patientData['today_appointment'];
-        $appointmentId = $appointment['appointment_id'] ?? 0;
+    private function saveCache(
+        int $patientId,
+        int $physicianId,
+        array $patientData,
+        string $briefText,
+        array $sources,
+    ): void {
+        $appointmentId = $patientData['today_appointment']['appointment_id'] ?? 0;
 
         sqlStatement(
             "INSERT INTO copilot_brief_cache
                 (patient_id, physician_id, appointment_id, appointment_date,
                  brief_text, follow_up_json, citation_registry, data_snapshot_hash, generated_at)
-             VALUES (?, ?, ?, CURDATE(), ?, '[]', '{}', ?, NOW())
+             VALUES (?, ?, ?, CURDATE(), ?, '[]', ?, ?, NOW())
              ON DUPLICATE KEY UPDATE
-                brief_text = VALUES(brief_text),
+                brief_text         = VALUES(brief_text),
+                citation_registry  = VALUES(citation_registry),
                 data_snapshot_hash = VALUES(data_snapshot_hash),
-                generated_at = NOW()",
+                generated_at       = NOW()",
             [
                 $patientId,
                 $physicianId,
                 $appointmentId,
                 $briefText,
+                json_encode($sources),
                 $patientData['data_hash'] ?? '',
             ]
         );
