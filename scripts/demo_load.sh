@@ -17,7 +17,26 @@ MYSQL_CMD="docker compose -f $COMPOSE_DIR/docker-compose.yml exec -T mysql maria
 
 # ── optional reset ────────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--reset" ]]; then
-  echo "Resetting demo data (re-seeding from scratch)..."
+  echo "Resetting demo data (clearing existing rows then re-seeding)..."
+  $MYSQL_CMD -e "
+    SET FOREIGN_KEY_CHECKS = 0;
+    DELETE FROM patient_data                WHERE pid BETWEEN 4 AND 18;
+    DELETE FROM openemr_postcalendar_events WHERE pc_pid BETWEEN 1 AND 18;
+    DELETE FROM form_encounter              WHERE pid BETWEEN 1 AND 18;
+    DELETE FROM forms                       WHERE pid BETWEEN 1 AND 18;
+    DELETE FROM form_soap                   WHERE id > 0;
+    DELETE FROM prescriptions               WHERE patient_id BETWEEN 1 AND 18;
+    DELETE FROM lists                       WHERE pid BETWEEN 1 AND 18;
+    DELETE FROM issue_encounter             WHERE pid BETWEEN 1 AND 18;
+    DELETE FROM allergy                     WHERE pid BETWEEN 1 AND 18;
+    DELETE FROM procedure_order             WHERE patient_id BETWEEN 1 AND 18;
+    DELETE FROM procedure_report            WHERE procedure_report_id > 0;
+    DELETE FROM procedure_result            WHERE procedure_result_id > 0;
+    DELETE FROM procedure_order_code        WHERE procedure_order_id > 0;
+    DELETE FROM copilot_brief_cache         WHERE patient_id BETWEEN 1 AND 18;
+    DELETE FROM copilot_audit_log           WHERE patient_id BETWEEN 1 AND 18;
+    SET FOREIGN_KEY_CHECKS = 1;
+  "
   $MYSQL_CMD < "$SQL_DIR/demo_seed.sql"
   echo "  seed applied"
 fi
