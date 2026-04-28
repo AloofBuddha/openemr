@@ -9,8 +9,7 @@ declare global {
 }
 
 window.copilotInit = (pid: number, apiUrl: string, csrfToken: string) => {
-  console.log('[copilot] deploy test v1');
-  const widget = document.getElementById('copilot-widget');
+const widget = document.getElementById('copilot-widget');
   if (!widget) return;
 
   // Move to top of .main div (full-width, above two-column card layout)
