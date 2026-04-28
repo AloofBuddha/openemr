@@ -49,7 +49,6 @@ PROMPT;
             return;
         }
 
-        // Check cache first (unless force refresh requested)
         if (!$forceRefresh) {
             $cached = $this->fetchCache($patientId, $physicianId);
             if ($cached !== null) {
@@ -61,8 +60,7 @@ PROMPT;
             }
         }
 
-        // Gather patient data
-        $toolStart = (int) (microtime(true) * 1000);
+        $toolStart   = (int) (microtime(true) * 1000);
         $patientData = $this->briefTool->gather($patientId, $physicianId);
         $toolDuration = (int) (microtime(true) * 1000) - $toolStart;
 
@@ -73,12 +71,12 @@ PROMPT;
             'result_size' => strlen(json_encode($patientData) ?: ''),
         ]];
 
-        // Build prompt + source registry; emit sources before streaming so citations are live immediately
         ['message' => $userMessage, 'sources' => $sources] = $this->buildUserMessage($patientData);
+
+        // Emit sources before streaming so citations are live the moment text arrives
         $this->emitEvent('sources', ['sources' => $sources]);
 
-        // Stream from Anthropic
-        $fullText = '';
+        $fullText    = '';
         $inputTokens = 0;
         $outputTokens = 0;
 
@@ -102,15 +100,15 @@ PROMPT;
         }
 
         $this->auditLogger->log(
-            physicianId:   $physicianId,
-            patientId:     $patientId,
-            queryText:     'Pre-encounter brief (auto)',
-            toolsCalled:   $toolsCalled,
-            model:         self::MODEL,
-            inputTokens:   $inputTokens,
-            outputTokens:  $outputTokens,
-            totalMs:       $totalMs,
-            verified:      true,
+            physicianId:  $physicianId,
+            patientId:    $patientId,
+            queryText:    'Pre-encounter brief (auto)',
+            toolsCalled:  $toolsCalled,
+            model:        self::MODEL,
+            inputTokens:  $inputTokens,
+            outputTokens: $outputTokens,
+            totalMs:      $totalMs,
+            verified:     true,
         );
 
         $this->emitEvent('done', [
@@ -122,100 +120,143 @@ PROMPT;
     }
 
     /**
-     * Builds the user message and a numbered source registry for citations.
+     * Builds the LLM user message and a structured source registry.
+     *
+     * Each source entry has:
+     *   type     — appointment | encounter | medication | lab
+     *   label    — short human-readable name shown in the drawer header
+     *   fields   — list of {key, value} pairs from the raw EHR record
+     *   view_url — relative URL to the record in OpenEMR (opens in new tab)
      *
      * @param array<string,mixed> $patientData
-     * @return array{message: string, sources: array<string, array{type: string, label: string, detail: string}>}
+     * @return array{message: string, sources: array<string, array{type: string, label: string, fields: list<array{key: string, value: string}>, view_url: string}>}
      */
     private function buildUserMessage(array $patientData): array
     {
-        $demo = $patientData['demographics'];
-        $name = $demo['name'] ?? 'Unknown';
-        $age  = $demo['age'] ?? '';
-        $sex  = $demo['sex'] ?? '';
-
         $sources = [];
-        $sourceIndex = 1;
-        $sourceLines = [];
+        $idx     = 1;
+        $lines   = [];
 
-        // [1] Today's appointment
-        $appt = $patientData['today_appointment'];
-        if ($appt) {
-            $reason = $appt['reason'] ?: 'Not specified';
-            $time   = $appt['time'] ?? '';
-            $sources[(string) $sourceIndex] = [
-                'type'   => 'appointment',
-                'label'  => "Today's appointment" . ($time ? " at {$time}" : ''),
-                'detail' => "Reason: {$reason}",
-            ];
-            $sourceLines[] = "[{$sourceIndex}] Today's appointment: {$reason}" . ($time ? " at {$time}" : '');
-        } else {
-            $sourceLines[] = "[{$sourceIndex}] Today's appointment: none on file";
-            $sources[(string) $sourceIndex] = ['type' => 'appointment', 'label' => "Today's appointment", 'detail' => 'None on file'];
-        }
-        $apptRef = $sourceIndex++;
+        $pid = (int) ($patientData['demographics']['pid'] ?? 0);
 
-        // [N] Last encounter
+        // ── Appointment ──────────────────────────────────────────────────────
+        $appt   = $patientData['today_appointment'];
+        $reason = $appt ? ($appt['reason'] ?: 'Not specified') : 'None on file';
+        $sources[(string) $idx] = [
+            'type'     => 'appointment',
+            'label'    => "Today's appointment",
+            'fields'   => $this->compactFields([
+                ['key' => 'Date',   'value' => $appt['date'] ?? ''],
+                ['key' => 'Time',   'value' => $appt['time'] ?? ''],
+                ['key' => 'Reason', 'value' => $reason],
+            ]),
+            'view_url' => '/interface/main/calendar/index.php',
+        ];
+        $lines[] = "[{$idx}] Today's appointment: {$reason}";
+        $idx++;
+
+        // ── Last encounter ────────────────────────────────────────────────────
         $enc = $patientData['last_encounter'];
         if ($enc) {
-            $encDate   = $enc['date'] ?? 'unknown';
-            $assessment = trim($enc['soap']['assessment'] ?? '');
-            $plan       = trim($enc['soap']['plan'] ?? '');
-            $detail     = $assessment ?: ($enc['reason'] ?? 'No SOAP note');
-            $sources[(string) $sourceIndex] = [
-                'type'   => 'encounter',
-                'label'  => "Last encounter ({$encDate})",
-                'detail' => ($assessment ? "Assessment: {$assessment}" : 'No assessment') . ($plan ? " — Plan: {$plan}" : ''),
+            $encDate    = $enc['date'] ?? 'unknown';
+            $soap       = $enc['soap'] ?? [];
+            $assessment = trim($soap['assessment'] ?? '');
+            $plan       = trim($soap['plan'] ?? '');
+            $subjective = trim($soap['subjective'] ?? '');
+            $sources[(string) $idx] = [
+                'type'     => 'encounter',
+                'label'    => "Encounter {$encDate}",
+                'fields'   => $this->compactFields([
+                    ['key' => 'Date',        'value' => $encDate],
+                    ['key' => 'Reason',      'value' => $enc['reason'] ?? ''],
+                    ['key' => 'Subjective',  'value' => $subjective],
+                    ['key' => 'Assessment',  'value' => $assessment],
+                    ['key' => 'Plan',        'value' => $plan],
+                ]),
+                'view_url' => "/interface/patient_file/encounter/encounter_top.php?set_enc_id={$enc['encounter_id']}&set_pid={$pid}",
             ];
-            $sourceLines[] = "[{$sourceIndex}] Last encounter ({$encDate}): {$detail}";
+            $lines[] = "[{$idx}] Last encounter ({$encDate}): " . ($assessment ?: 'No assessment');
         } else {
-            $sources[(string) $sourceIndex] = ['type' => 'encounter', 'label' => 'Last encounter', 'detail' => 'No prior encounters'];
-            $sourceLines[] = "[{$sourceIndex}] Last encounter: none";
+            $sources[(string) $idx] = [
+                'type'     => 'encounter',
+                'label'    => 'Last encounter',
+                'fields'   => [['key' => 'Note', 'value' => 'No prior encounters on file']],
+                'view_url' => '',
+            ];
+            $lines[] = "[{$idx}] Last encounter: none";
         }
-        $sourceIndex++;
+        $idx++;
 
-        // Medications
+        // ── Medications ───────────────────────────────────────────────────────
         $meds = $patientData['active_medications'];
-        $medRefs = [];
         if (empty($meds)) {
-            $sourceLines[] = "[{$sourceIndex}] Medications: none documented";
-            $sources[(string) $sourceIndex] = ['type' => 'medication', 'label' => 'Active medications', 'detail' => 'None documented'];
-            $sourceIndex++;
+            $sources[(string) $idx] = [
+                'type'     => 'medication',
+                'label'    => 'Active medications',
+                'fields'   => [['key' => 'Note', 'value' => 'None documented']],
+                'view_url' => "/interface/patient_file/summary/demographics.php?set_pid={$pid}",
+            ];
+            $lines[] = "[{$idx}] Medications: none documented";
+            $idx++;
         } else {
             foreach ($meds as $med) {
-                $label  = trim("{$med['drug']} {$med['dosage']} {$med['unit']}");
-                $detail = trim("Route: {$med['route']} — Interval: {$med['interval']}" . ($med['note'] ? " — {$med['note']}" : ''));
-                $sources[(string) $sourceIndex] = ['type' => 'medication', 'label' => $label, 'detail' => $detail ?: 'Active prescription'];
-                $sourceLines[] = "[{$sourceIndex}] Medication: {$label}" . ($med['interval'] ? " ({$med['interval']})" : '');
-                $medRefs[] = $sourceIndex;
-                $sourceIndex++;
+                $label = trim("{$med['drug']} {$med['dosage']} {$med['unit']}");
+                $sources[(string) $idx] = [
+                    'type'     => 'medication',
+                    'label'    => $label,
+                    'fields'   => $this->compactFields([
+                        ['key' => 'Drug',      'value' => $med['drug'] ?? ''],
+                        ['key' => 'Dose',      'value' => trim(($med['dosage'] ?? '') . ' ' . ($med['unit'] ?? ''))],
+                        ['key' => 'Route',     'value' => $med['route'] ?? ''],
+                        ['key' => 'Frequency', 'value' => $med['interval'] ?? ''],
+                        ['key' => 'Notes',     'value' => $med['note'] ?? ''],
+                    ]),
+                    'view_url' => "/interface/patient_file/summary/demographics.php?set_pid={$pid}",
+                ];
+                $lines[] = "[{$idx}] Medication: {$label}" . ($med['interval'] ? " ({$med['interval']})" : '');
+                $idx++;
             }
         }
 
-        // Labs
+        // ── Labs ──────────────────────────────────────────────────────────────
         $labs = $patientData['recent_labs'];
         if (empty($labs)) {
-            $sourceLines[] = "[{$sourceIndex}] Labs: none documented";
-            $sources[(string) $sourceIndex] = ['type' => 'lab', 'label' => 'Recent labs', 'detail' => 'None on file'];
-            $sourceIndex++;
+            $sources[(string) $idx] = [
+                'type'     => 'lab',
+                'label'    => 'Recent labs',
+                'fields'   => [['key' => 'Note', 'value' => 'None on file']],
+                'view_url' => "/interface/patient_file/summary/demographics.php?set_pid={$pid}",
+            ];
+            $lines[] = "[{$idx}] Labs: none on file";
+            $idx++;
         } else {
             foreach ($labs as $lab) {
-                $label  = "{$lab['test']}: {$lab['value']} {$lab['units']}";
-                $detail = ($lab['range'] ? "Ref: {$lab['range']}" : '') .
-                          ($lab['abnormal'] ? " — ABNORMAL: {$lab['abnormal']}" : '') .
-                          ($lab['date_collected'] ? " — {$lab['date_collected']}" : '');
-                $sources[(string) $sourceIndex] = [
-                    'type'   => 'lab',
-                    'label'  => $label,
-                    'detail' => trim($detail, " \t\n\r\0\x0B—"),
+                $result = trim(($lab['value'] ?? '') . ' ' . ($lab['units'] ?? ''));
+                $status = $lab['abnormal'] ? "ABNORMAL ({$lab['abnormal']})" : 'Within range';
+                $label  = "{$lab['test']}: {$result}";
+                $sources[(string) $idx] = [
+                    'type'     => 'lab',
+                    'label'    => $label,
+                    'fields'   => $this->compactFields([
+                        ['key' => 'Test',      'value' => $lab['test'] ?? ''],
+                        ['key' => 'Result',    'value' => $result],
+                        ['key' => 'Reference', 'value' => $lab['range'] ?? ''],
+                        ['key' => 'Status',    'value' => $status],
+                        ['key' => 'Collected', 'value' => $lab['date_collected'] ?? ''],
+                    ]),
+                    'view_url' => "/interface/patient_file/summary/demographics.php?set_pid={$pid}",
                 ];
-                $flag = $lab['abnormal'] ? " [ABNORMAL: {$lab['abnormal']}]" : '';
-                $sourceLines[] = "[{$sourceIndex}] Lab: {$label}{$flag}" . ($lab['date_collected'] ? " — {$lab['date_collected']}" : '');
-                $sourceIndex++;
+                $flag    = $lab['abnormal'] ? " [ABNORMAL: {$lab['abnormal']}]" : '';
+                $lines[] = "[{$idx}] Lab: {$label}{$flag}" . ($lab['date_collected'] ? " — {$lab['date_collected']}" : '');
+                $idx++;
             }
         }
 
-        $sourcesBlock = implode("\n", $sourceLines);
+        $demo    = $patientData['demographics'];
+        $name    = $demo['name'] ?? 'Unknown';
+        $age     = $demo['age'] ?? '';
+        $sex     = $demo['sex'] ?? '';
+        $srcBlock = implode("\n", $lines);
 
         $message = <<<TEXT
 Brief this patient. Cite source numbers inline (e.g. [1]) next to each fact.
@@ -223,10 +264,23 @@ Brief this patient. Cite source numbers inline (e.g. [1]) next to each fact.
 PATIENT: {$name}, {$age}y {$sex}
 
 SOURCES:
-{$sourcesBlock}
+{$srcBlock}
 TEXT;
 
         return ['message' => $message, 'sources' => $sources];
+    }
+
+    /**
+     * Removes fields with empty values so the drawer only shows real data.
+     *
+     * @param list<array{key: string, value: string}> $fields
+     * @return list<array{key: string, value: string}>
+     */
+    private function compactFields(array $fields): array
+    {
+        return array_values(
+            array_filter($fields, fn(array $f): bool => trim($f['value']) !== '')
+        );
     }
 
     private function streamAnthropicApi(

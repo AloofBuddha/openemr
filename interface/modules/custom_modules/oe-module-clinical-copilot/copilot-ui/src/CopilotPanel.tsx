@@ -4,16 +4,16 @@ import './styles.css';
 
 type Status = 'idle' | 'loading' | 'streaming' | 'cached' | 'live' | 'error';
 
+interface SourceField {
+  key: string;
+  value: string;
+}
+
 interface CiteSource {
   type: string;
   label: string;
-  detail: string;
-}
-
-interface Tooltip {
-  source: CiteSource;
-  x: number;
-  y: number;
+  fields: SourceField[];
+  view_url?: string;
 }
 
 interface Props {
@@ -33,12 +33,14 @@ function useBriefStream(pid: number, apiUrl: string, csrfToken: string) {
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState('');
   const [sources, setSources] = useState<Record<string, CiteSource>>({});
+  const [activeSource, setActiveSource] = useState<CiteSource | null>(null);
 
   const requestBrief = useCallback(async (forceRefresh: boolean) => {
     setText('');
     setStatus('loading');
     setError('');
     setSources({});
+    setActiveSource(null);
 
     const body = new URLSearchParams({ pid: String(pid), csrf_token_form: csrfToken });
     if (forceRefresh) body.append('refresh', '1');
@@ -97,14 +99,14 @@ function useBriefStream(pid: number, apiUrl: string, csrfToken: string) {
     }
   }, [pid, apiUrl, csrfToken]);
 
-  // Inject citation buttons into rendered HTML so [N] markers become clickable
   const html = useMemo(() => {
     if (!text) return '';
     const raw = marked.parse(text) as string;
+    // Replace [N] citation markers with clickable superscript buttons
     return raw.replace(/\[(\d+)\]/g, '<button class="copilot-cite" data-src="$1">$1</button>');
   }, [text]);
 
-  return { html, status, error, sources, requestBrief };
+  return { html, status, error, sources, activeSource, setActiveSource, requestBrief };
 }
 
 // ---------------------------------------------------------------------------
@@ -112,9 +114,9 @@ function useBriefStream(pid: number, apiUrl: string, csrfToken: string) {
 // ---------------------------------------------------------------------------
 
 export function CopilotPanel({ pid, apiUrl, csrfToken }: Props) {
-  const { html, status, error, sources, requestBrief } = useBriefStream(pid, apiUrl, csrfToken);
+  const { html, status, error, sources, activeSource, setActiveSource, requestBrief } =
+    useBriefStream(pid, apiUrl, csrfToken);
   const [collapsed, setCollapsed] = useState(false);
-  const [tooltip, setTooltip] = useState<Tooltip | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const isBusy = status === 'loading' || status === 'streaming';
 
@@ -122,33 +124,23 @@ export function CopilotPanel({ pid, apiUrl, csrfToken }: Props) {
     requestBrief(false);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Event delegation: handle citation button clicks inside dangerouslySetInnerHTML content
+  // Event delegation: handle citation clicks inside dangerouslySetInnerHTML content
   useEffect(() => {
     const el = contentRef.current;
     if (!el) return;
-
     const handleClick = (e: MouseEvent) => {
       const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-src]');
       if (!btn) return;
       const src = btn.getAttribute('data-src') ?? '';
       const source = sources[src];
       if (!source) return;
-      const rect = btn.getBoundingClientRect();
-      setTooltip({ source, x: rect.left, y: rect.bottom + 6 });
+      // Toggle: clicking the same citation closes the drawer
+      setActiveSource(prev => (prev === source ? null : source));
       e.stopPropagation();
     };
-
     el.addEventListener('click', handleClick);
     return () => el.removeEventListener('click', handleClick);
-  }, [sources, html]);
-
-  // Dismiss tooltip on outside click
-  useEffect(() => {
-    if (!tooltip) return;
-    const dismiss = () => setTooltip(null);
-    document.addEventListener('click', dismiss);
-    return () => document.removeEventListener('click', dismiss);
-  }, [tooltip]);
+  }, [sources, html, setActiveSource]);
 
   return (
     <div className="copilot-header-wrap">
@@ -161,48 +153,100 @@ export function CopilotPanel({ pid, apiUrl, csrfToken }: Props) {
             onClick={() => requestBrief(true)}
             disabled={isBusy}
             title="Refresh brief"
-          >
-            ↻
-          </button>
+          >↻</button>
           <button
             className="copilot-btn-icon"
             onClick={() => setCollapsed(c => !c)}
             title={collapsed ? 'Expand' : 'Collapse'}
-          >
-            {collapsed ? '▼' : '▲'}
-          </button>
+          >{collapsed ? '▼' : '▲'}</button>
         </div>
       </div>
 
-      <div className={`copilot-body${collapsed ? ' collapsed' : ''}`}>
-        {status === 'error' ? (
-          <p className="copilot-content copilot-error">⚠ {error}</p>
+      <div className={`copilot-body${collapsed ? ' collapsed' : ''}${activeSource ? ' has-drawer' : ''}`}>
+        <div className="copilot-brief">
+          {status === 'error' ? (
+            <p className="copilot-content copilot-error">⚠ {error}</p>
+          ) : (
+            <>
+              <div
+                ref={contentRef}
+                className={`copilot-content${status === 'streaming' ? ' streaming' : ''}`}
+                // html is LLM output from our own controlled prompt — not user input
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
+              {(status === 'live' || status === 'cached') && (
+                <div className="copilot-footer">
+                  <span className="copilot-disclaimer">
+                    Brief reflects EHR data only. Undocumented conditions will not appear.
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {activeSource && (
+          <SourceDrawer
+            source={activeSource}
+            onClose={() => setActiveSource(null)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Source drawer — shows the raw EHR record fields for a cited data point
+// ---------------------------------------------------------------------------
+
+const TYPE_LABELS: Record<string, string> = {
+  appointment: 'Appointment',
+  encounter:   'Encounter',
+  medication:  'Prescription',
+  lab:         'Lab Result',
+};
+
+function SourceDrawer({ source, onClose }: { source: CiteSource; onClose: () => void }) {
+  const typeLabel = TYPE_LABELS[source.type] ?? source.type;
+
+  return (
+    <div className="copilot-drawer">
+      <div className="copilot-drawer-header">
+        <div>
+          <span className={`copilot-drawer-type copilot-drawer-type-${source.type}`}>{typeLabel}</span>
+          <span className="copilot-drawer-label">{source.label}</span>
+        </div>
+        <button className="copilot-drawer-close" onClick={onClose} title="Close">✕</button>
+      </div>
+
+      <div className="copilot-drawer-body">
+        {source.fields && source.fields.length > 0 ? (
+          <table className="copilot-drawer-table">
+            <tbody>
+              {source.fields.map((f, i) => (
+                <tr key={i}>
+                  <td className="copilot-drawer-key">{f.key}</td>
+                  <td className="copilot-drawer-val">{f.value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : (
-          <>
-            <div
-              ref={contentRef}
-              className={`copilot-content${status === 'streaming' ? ' streaming' : ''}`}
-              // html is LLM output rendered from our own controlled prompt — not user input
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-            {(status === 'live' || status === 'cached') && (
-              <div className="copilot-footer">
-                <span className="copilot-disclaimer">
-                  Brief reflects EHR data only. Undocumented conditions will not appear.
-                </span>
-              </div>
-            )}
-          </>
+          <p className="copilot-drawer-empty">No record details available.</p>
         )}
       </div>
 
-      {tooltip && (
-        <div
-          className="copilot-tooltip"
-          style={{ left: tooltip.x, top: tooltip.y }}
-        >
-          <div className="copilot-tooltip-label">{tooltip.source.label}</div>
-          <div className="copilot-tooltip-detail">{tooltip.source.detail}</div>
+      {source.view_url && (
+        <div className="copilot-drawer-footer">
+          <a
+            href={source.view_url}
+            target="_blank"
+            rel="noreferrer"
+            className="copilot-drawer-link"
+          >
+            View in chart ↗
+          </a>
         </div>
       )}
     </div>
