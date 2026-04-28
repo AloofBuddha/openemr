@@ -11,6 +11,17 @@ An AI agent embedded in OpenEMR that gives physicians a 90-second patient briefi
 
 Dr. Sarah Chen sees 18–22 patients a day. Between rooms she has 90 seconds to reconstruct who the next patient is, why they're here, and what changed since the last visit — across 4–6 screens in the EHR. This agent collapses that into a single conversational query.
 
+When a physician opens a patient chart, the **Clinical Co-Pilot widget** appears at the top of the page and automatically streams a 4–6 bullet pre-encounter brief covering:
+
+- Why the patient is here today (from today's appointment)
+- What changed since the last visit (delta from the last SOAP note)
+- Active medications (flagged concerns)
+- Recent labs (flagged abnormals)
+
+Every data point in the brief carries an inline citation number. Clicking one opens a **source drawer** — a Harvey-style right-side panel showing the raw EHR record fields (date, values, reference ranges, SOAP note text verbatim) so the physician can verify the data is from the chart, not hallucinated. Each source includes a "View in chart" link to the native OpenEMR record.
+
+Briefs are cached per-patient per-physician per-day (30-minute TTL) and served from cache on repeat loads. A refresh button forces a new generation.
+
 Use cases documented in [`USERS.md`](USERS.md).
 
 ---
@@ -109,7 +120,19 @@ sql/
   demo_augment4.sql  UC-specific data (Wanda referral/Rx, Susan mammogram referral)
 scripts/
   demo_load.sh       Single command to load all demo data
-interface/modules/custom_modules/oe-module-clinical-copilot/   (agent module)
+interface/modules/custom_modules/oe-module-clinical-copilot/
+  src/
+    Bootstrap.php              Module entry — hooks into OpenEMR event system
+    Agent/Orchestrator.php     LLM orchestration, SSE streaming, cache logic
+    Agent/Tools/PatientBriefTool.php  Data gathering (appt, SOAP, meds, labs)
+    Observability/AgentAuditLogger.php
+  public/
+    chat.php                   SSE endpoint (POST → streams events to browser)
+    js/copilot-bundle.js       Built React/TS widget (CSS inlined, ~187KB)
+  copilot-ui/src/
+    main.tsx                   Widget mount + DOM repositioning
+    CopilotPanel.tsx           Streaming hook, citation drawer, status badge
+    styles.css                 Widget, drawer, citation button styles
 USERS.md             Target user, workflow, and use cases
 AUDIT.md             Security, performance, and HIPAA audit
 ARCHITECTURE.md      AI integration plan
