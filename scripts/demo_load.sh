@@ -28,6 +28,10 @@ for f in demo_augment demo_augment2 demo_augment3 demo_augment4; do
   $MYSQL_CMD < "$SQL_DIR/${f}.sql"
 done
 
+# ── pin appointments to today (seed dates go stale as the calendar advances) ──
+$MYSQL_CMD -e "UPDATE openemr_postcalendar_events SET pc_eventDate = CURDATE() WHERE pc_aid IN (10, 11);"
+echo "  appointments pinned to today"
+
 echo ""
 echo "Demo data loaded."
 echo "  App:        http://localhost:8300"
