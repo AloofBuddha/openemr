@@ -126,10 +126,10 @@ PROMPT;
      *   type     — appointment | encounter | medication | lab
      *   label    — short human-readable name shown in the drawer header
      *   fields   — list of {key, value} pairs from the raw EHR record
-     *   view_url — relative URL to the record in OpenEMR (opens in new tab)
+     *   scroll_to — CSS selector of the on-page card to scroll to and expand
      *
      * @param array<string,mixed> $patientData
-     * @return array{message: string, sources: array<string, array{type: string, label: string, fields: list<array{key: string, value: string}>, view_url: string}>}
+     * @return array{message: string, sources: array<string, array{type: string, label: string, fields: list<array{key: string, value: string}>, scroll_to: string}>}
      */
     private function buildUserMessage(array $patientData): array
     {
@@ -143,14 +143,14 @@ PROMPT;
         $appt   = $patientData['today_appointment'];
         $reason = $appt ? ($appt['reason'] ?: 'Not specified') : 'None on file';
         $sources[(string) $idx] = [
-            'type'     => 'appointment',
-            'label'    => "Today's appointment",
-            'fields'   => $this->compactFields([
+            'type'      => 'appointment',
+            'label'     => "Today's appointment",
+            'fields'    => $this->compactFields([
                 ['key' => 'Date',   'value' => $appt['date'] ?? ''],
                 ['key' => 'Time',   'value' => $appt['time'] ?? ''],
                 ['key' => 'Reason', 'value' => $reason],
             ]),
-            'view_url' => '/interface/main/calendar/index.php',
+            'scroll_to' => '#appointments_ps_expand',
         ];
         $lines[] = "[{$idx}] Today's appointment: {$reason}";
         $idx++;
@@ -164,24 +164,24 @@ PROMPT;
             $plan       = trim($soap['plan'] ?? '');
             $subjective = trim($soap['subjective'] ?? '');
             $sources[(string) $idx] = [
-                'type'     => 'encounter',
-                'label'    => "Encounter {$encDate}",
-                'fields'   => $this->compactFields([
+                'type'      => 'encounter',
+                'label'     => "Encounter {$encDate}",
+                'fields'    => $this->compactFields([
                     ['key' => 'Date',        'value' => $encDate],
                     ['key' => 'Reason',      'value' => $enc['reason'] ?? ''],
                     ['key' => 'Subjective',  'value' => $subjective],
                     ['key' => 'Assessment',  'value' => $assessment],
                     ['key' => 'Plan',        'value' => $plan],
                 ]),
-                'view_url' => "/interface/patient_file/encounter/encounter_top.php?set_enc_id={$enc['encounter_id']}&set_pid={$pid}",
+                'scroll_to' => '#appointments_ps_expand',
             ];
             $lines[] = "[{$idx}] Last encounter ({$encDate}): " . ($assessment ?: 'No assessment');
         } else {
             $sources[(string) $idx] = [
-                'type'     => 'encounter',
-                'label'    => 'Last encounter',
-                'fields'   => [['key' => 'Note', 'value' => 'No prior encounters on file']],
-                'view_url' => '',
+                'type'      => 'encounter',
+                'label'     => 'Last encounter',
+                'fields'    => [['key' => 'Note', 'value' => 'No prior encounters on file']],
+                'scroll_to' => '',
             ];
             $lines[] = "[{$idx}] Last encounter: none";
         }
@@ -191,10 +191,10 @@ PROMPT;
         $meds = $patientData['active_medications'];
         if (empty($meds)) {
             $sources[(string) $idx] = [
-                'type'     => 'medication',
-                'label'    => 'Active medications',
-                'fields'   => [['key' => 'Note', 'value' => 'None documented']],
-                'view_url' => "/interface/patient_file/summary/demographics.php?set_pid={$pid}",
+                'type'      => 'medication',
+                'label'     => 'Active medications',
+                'fields'    => [['key' => 'Note', 'value' => 'None documented']],
+                'scroll_to' => '#prescriptions_ps_expand',
             ];
             $lines[] = "[{$idx}] Medications: none documented";
             $idx++;
@@ -202,16 +202,16 @@ PROMPT;
             foreach ($meds as $med) {
                 $label = trim("{$med['drug']} {$med['dosage']} {$med['unit']}");
                 $sources[(string) $idx] = [
-                    'type'     => 'medication',
-                    'label'    => $label,
-                    'fields'   => $this->compactFields([
+                    'type'      => 'medication',
+                    'label'     => $label,
+                    'fields'    => $this->compactFields([
                         ['key' => 'Drug',      'value' => $med['drug'] ?? ''],
                         ['key' => 'Dose',      'value' => trim(($med['dosage'] ?? '') . ' ' . ($med['unit'] ?? ''))],
                         ['key' => 'Route',     'value' => $med['route'] ?? ''],
                         ['key' => 'Frequency', 'value' => $med['interval'] ?? ''],
                         ['key' => 'Notes',     'value' => $med['note'] ?? ''],
                     ]),
-                    'view_url' => "/interface/patient_file/summary/demographics.php?set_pid={$pid}",
+                    'scroll_to' => '#prescriptions_ps_expand',
                 ];
                 $lines[] = "[{$idx}] Medication: {$label}" . ($med['interval'] ? " ({$med['interval']})" : '');
                 $idx++;
@@ -222,10 +222,10 @@ PROMPT;
         $labs = $patientData['recent_labs'];
         if (empty($labs)) {
             $sources[(string) $idx] = [
-                'type'     => 'lab',
-                'label'    => 'Recent labs',
-                'fields'   => [['key' => 'Note', 'value' => 'None on file']],
-                'view_url' => "/interface/patient_file/summary/demographics.php?set_pid={$pid}",
+                'type'      => 'lab',
+                'label'     => 'Recent labs',
+                'fields'    => [['key' => 'Note', 'value' => 'None on file']],
+                'scroll_to' => '#labdata_ps_expand',
             ];
             $lines[] = "[{$idx}] Labs: none on file";
             $idx++;
@@ -244,7 +244,7 @@ PROMPT;
                         ['key' => 'Status',    'value' => $status],
                         ['key' => 'Collected', 'value' => $lab['date_collected'] ?? ''],
                     ]),
-                    'view_url' => "/interface/patient_file/summary/demographics.php?set_pid={$pid}",
+                    'scroll_to' => '#labdata_ps_expand',
                 ];
                 $flag    = $lab['abnormal'] ? " [ABNORMAL: {$lab['abnormal']}]" : '';
                 $lines[] = "[{$idx}] Lab: {$label}{$flag}" . ($lab['date_collected'] ? " — {$lab['date_collected']}" : '');

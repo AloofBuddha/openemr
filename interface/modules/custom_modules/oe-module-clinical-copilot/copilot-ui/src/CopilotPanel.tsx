@@ -13,7 +13,7 @@ interface CiteSource {
   type: string;
   label: string;
   fields: SourceField[];
-  view_url?: string;
+  scroll_to?: string;
 }
 
 interface Props {
@@ -210,6 +210,26 @@ const TYPE_LABELS: Record<string, string> = {
 function SourceDrawer({ source, onClose }: { source: CiteSource; onClose: () => void }) {
   const typeLabel = TYPE_LABELS[source.type] ?? source.type;
 
+  const handleScrollTo = () => {
+    if (!source.scroll_to) return;
+    const el = document.querySelector<HTMLElement>(source.scroll_to);
+    if (!el) return;
+    // Expand the card if Bootstrap has it collapsed
+    const jq = (window as Record<string, unknown>).$;
+    if (typeof jq === 'function') {
+      const $el = (jq as CallableFunction)(el);
+      if ($el.hasClass('collapse') && !$el.hasClass('show')) {
+        $el.collapse('show');
+      }
+    }
+    // Close drawer then scroll so the card is fully visible
+    onClose();
+    setTimeout(() => {
+      const card = el.closest('.card') ?? el;
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  };
+
   return (
     <div className="copilot-drawer">
       <div className="copilot-drawer-header">
@@ -237,16 +257,11 @@ function SourceDrawer({ source, onClose }: { source: CiteSource; onClose: () => 
         )}
       </div>
 
-      {source.view_url && (
+      {source.scroll_to && (
         <div className="copilot-drawer-footer">
-          <a
-            href={source.view_url}
-            target="_blank"
-            rel="noreferrer"
-            className="copilot-drawer-link"
-          >
-            View in chart ↗
-          </a>
+          <button className="copilot-drawer-link" onClick={handleScrollTo}>
+            View in chart ↓
+          </button>
         </div>
       )}
     </div>

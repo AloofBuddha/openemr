@@ -266,9 +266,12 @@
 }
 
 .copilot-drawer-link {
+  background: none;
+  border: none;
+  padding: 0;
   font-size: 11px;
   color: #1a6094;
-  text-decoration: none;
   font-weight: 600;
+  cursor: pointer;
 }
 .copilot-drawer-link:hover { text-decoration: underline; }
