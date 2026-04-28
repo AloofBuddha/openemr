@@ -48,22 +48,7 @@ class Bootstrap
         $pid        = (int) $pid;
 
         echo <<<HTML
-        <div id="copilot-widget" style="display:none;">
-            <div class="copilot-header">
-                <span><strong>&#129302; Clinical Co-Pilot</strong></span>
-                <div class="copilot-header-actions">
-                    <span id="copilot-status-badge" class="copilot-badge copilot-badge-loading">Loading...</span>
-                    <button id="copilot-refresh-btn" onclick="copilotRefresh()" title="Refresh brief" class="copilot-btn-icon">&#8635;</button>
-                    <button id="copilot-toggle-btn" onclick="copilotToggle()" title="Collapse" class="copilot-btn-icon">&#9650;</button>
-                </div>
-            </div>
-            <div id="copilot-panel-body" class="copilot-body">
-                <div id="copilot-content" class="copilot-content"></div>
-                <div id="copilot-footer" class="copilot-footer" style="display:none;">
-                    <span class="copilot-disclaimer">Brief reflects EHR data only. Undocumented conditions will not appear.</span>
-                </div>
-            </div>
-        </div>
+        <div id="copilot-widget" style="display:none;"><div id="copilot-root"></div></div>
         <script src="{$publicUrl}/js/copilot-bundle.js"></script>
         <script>
         (function() {
