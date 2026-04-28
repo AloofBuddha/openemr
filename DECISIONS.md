@@ -301,11 +301,72 @@ This is not solvable with current architecture. It requires the physician to int
 
 ## Open Questions (must resolve before writing code)
 
-| # | Question | Blocks |
-|---|----------|--------|
-| 1 | What OpenEMR tab/panel mechanism will host the co-pilot UI? (auto-opened tab vs persistent side panel vs slide-over) | UI implementation |
-| 2 | How does the PHP module make async parallel tool calls? (fibers, pcntl, or sequential with streaming start?) | Tool orchestration |
-| 3 | How is the Anthropic API key injected into the Docker environment on prod? | Deployment |
-| 4 | Does `copilot_audit_log` fully satisfy HIPAA disclosure accounting, or must `chart_tracker` also be populated? | Compliance |
-| 5 | What is the follow-up suggestion generation approach — same LLM call or separate? | Response format |
-| 6 | How are eval runs triggered and their results recorded? | Early Submission |
+| # | Question | Status | Blocks |
+|---|----------|--------|--------|
+| 1 | What OpenEMR tab/panel mechanism will host the co-pilot UI? | ✅ Resolved — see MVP below | UI implementation |
+| 2 | How does the PHP module make async parallel tool calls? (fibers, pcntl, or sequential with streaming start?) | ❌ Open | Tool orchestration |
+| 3 | How is the Anthropic API key injected into the Docker environment on prod? | ❌ Open | Deployment |
+| 4 | Does `copilot_audit_log` fully satisfy HIPAA disclosure accounting, or must `chart_tracker` also be populated? | ❌ Open | Compliance |
+| 5 | What is the follow-up suggestion generation approach — same LLM call or separate? | ✅ Resolved — same call, included in streamed payload | Response format |
+| 6 | How are eval runs triggered and their results recorded? | ❌ Open | Early Submission |
+
+---
+
+## MVP Definition
+
+**Scope: UC-1 only.** A co-pilot card at the top of the patient summary page (`interface/patient_file/summary/demographics.php`) that auto-fires a pre-encounter brief when the physician opens a patient chart. No typing required.
+
+### What it shows
+- Why the patient is here today (next appointment reason from `openemr_postcalendar_events`)
+- What changed since the last visit (key delta from last SOAP note)
+- Active medications and any flagged recent labs
+- 2–3 tap-able follow-up suggestions generated in the same LLM call
+
+### Integration point
+New widget card in the existing OpenEMR widget system — same framework as Problems, Medications, Labs cards. Sits at the top of the summary page, auto-expands, streams response in. Native feel, not bolted on.
+
+### Auto-fire + caching
+
+The brief fires automatically on patient page open. To avoid redundant LLM calls, results are cached in a new `copilot_brief_cache` table.
+
+**Cache key:** `patient_id + physician_id + appointment_id` (tied to the specific upcoming appointment via `pc_eid`)
+
+**Cache is valid when all three are true:**
+1. Brief was generated for the same upcoming appointment (`pc_eid` matches)
+2. Brief was generated *after* the last significant data change for that patient (new encounter, prescription update, or new lab result)
+3. The appointment has not yet occurred
+
+**Cache is stale when any one is true:**
+- A new encounter, prescription change, or lab result was recorded after `generated_at`
+- The appointment it was generated for has passed
+- Physician clicks "↻ Refresh"
+
+**Staleness detection:** a `data_snapshot_hash` (hash of last-modified timestamps across encounters, prescriptions, labs) is stored with the cache entry and compared on page load — one query, no multi-table scan.
+
+**Display:**
+- Fresh cache hit → show brief with small "Generated [time]" indicator, no LLM call
+- Stale cache → show prior brief with "⚠ Data may have changed — tap to refresh" banner; does not auto-refire
+- Cache miss → fire brief, stream response into card, store result
+
+**Schema:**
+```sql
+CREATE TABLE copilot_brief_cache (
+    id                  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    patient_id          INT NOT NULL,
+    physician_id        INT NOT NULL,
+    appointment_id      INT NOT NULL,          -- pc_eid
+    appointment_date    DATE NOT NULL,
+    brief_html          TEXT NOT NULL,         -- rendered response
+    follow_up_json      JSON NOT NULL,         -- [{label, query}]
+    citation_registry   JSON NOT NULL,         -- {citation_id: {table, record_id, field, value}}
+    data_snapshot_hash  VARCHAR(64) NOT NULL,  -- staleness check
+    generated_at        DATETIME NOT NULL,
+    INDEX (patient_id, physician_id, appointment_date)
+);
+```
+
+### Excluded from MVP (follow-on)
+- UC-2 through UC-5
+- Free-text or typeahead input
+- Day-start schedule view
+- Full eval suite (scaffolded but not populated)

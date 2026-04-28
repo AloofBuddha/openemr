@@ -93,7 +93,7 @@ interface/modules/custom_modules/oe-module-clinical-copilot/
 │   └── js/
 │       └── copilot-panel.js              # Streaming chat UI component
 └── sql/
-    └── install.sql                       # copilot_audit_log table
+    └── install.sql                       # copilot_audit_log + copilot_brief_cache tables
 ```
 
 ---
@@ -286,7 +286,7 @@ The audit found no caching layer in OpenEMR. The agent addresses this at two lev
 
 **Per-request:** Tools for a patient brief run in parallel. The UI begins streaming as soon as the first results return. If a tool times out (>2s), the response notes the missing data rather than waiting.
 
-**Per-session:** The patient brief result is cached in the PHP session for 5 minutes. If a physician asks two questions about the same patient within the same session, the second query reuses cached demographics, problems, and medications. Only lab/encounter queries re-run (most likely to change mid-session).
+**Brief cache (`copilot_brief_cache` table):** The patient brief is cached per `(patient_id, physician_id, appointment_id)`. On patient page load, the module checks for a valid cache entry before firing any LLM call. Cache validity requires: (1) the brief was generated for the same upcoming appointment, (2) it was generated after the last data change to that patient's encounters, prescriptions, or labs (checked via `data_snapshot_hash`), and (3) the appointment has not yet passed. A stale cache shows the prior brief with a "⚠ Data may have changed" banner rather than silently serving outdated content. The physician can always force a refresh. This eliminates redundant LLM calls for physicians who open and close a patient chart multiple times before a visit.
 
 **For UC-5 (day-start scan):** All patient queries run concurrently with a 2-second per-patient timeout. The scan completes in roughly `max(individual query time)` rather than `sum(individual query times)`.
 
