@@ -16,6 +16,7 @@
 require_once dirname(__FILE__, 5) . '/globals.php';
 
 use OpenEMR\Common\Csrf\CsrfUtils;
+use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Modules\ClinicalCopilot\Agent\Orchestrator;
 use OpenEMR\Modules\ClinicalCopilot\Agent\Tools\PatientBriefTool;
 use OpenEMR\Modules\ClinicalCopilot\Authorization\PatientAccessGuard;
@@ -35,8 +36,11 @@ spl_autoload_register(function (string $class): void {
     }
 });
 
-// Session auth: must be logged in
-if (empty($_SESSION['authUserID'])) {
+// Session auth: globals.php already redirects unauthenticated page requests, but
+// for XHR requests it may not. Use the Symfony session wrapper (same as the rest of OpenEMR).
+$session     = SessionWrapperFactory::getInstance()->getActiveSession();
+$physicianId = (int) $session->get('authUserID');
+if ($physicianId <= 0) {
     http_response_code(401);
     exit('Unauthorized');
 }
@@ -52,7 +56,6 @@ if ($pid === false || $pid === null || $pid <= 0) {
 }
 
 $forceRefresh = filter_input(INPUT_POST, 'refresh', FILTER_VALIDATE_BOOLEAN) === true;
-$physicianId  = (int) $_SESSION['authUserID'];
 
 // Authorization
 try {
