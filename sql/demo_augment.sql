@@ -27,7 +27,7 @@ WHERE id = 3;
 -- SOAP NOTES — remaining 8 patients (form_soap IDs 19–26)
 -- =============================================================================
 
-INSERT INTO form_soap (id, date, pid, user, groupname, authorized, activity, subjective, objective, assessment, plan)
+INSERT IGNORE INTO form_soap (id, date, pid, user, groupname, authorized, activity, subjective, objective, assessment, plan)
 VALUES
 
 -- Wanda Moore (pid=3), last encounter 107 (2025-02-03)
@@ -93,7 +93,7 @@ VALUES
 --          respiration, BMI, BMI_status, oxygen_saturation
 -- =============================================================================
 
-INSERT INTO form_vitals
+INSERT IGNORE INTO form_vitals
     (id, uuid, date, pid, user, groupname, authorized, activity,
      bps, bpd, height, weight, temperature, temp_method, pulse, respiration, BMI, BMI_status, oxygen_saturation)
 VALUES
@@ -164,7 +164,7 @@ VALUES
 -- FORMS TABLE — links all SOAP notes and vitals to their encounters
 -- =============================================================================
 
-INSERT INTO forms
+INSERT IGNORE INTO forms
     (id, date, encounter, form_name, form_id, pid, user, groupname, authorized, deleted, formdir, provider_id)
 VALUES
 

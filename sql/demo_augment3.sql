@@ -15,7 +15,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- =============================================================================
 -- Columns used: procedure_order_id, procedure_order_seq, procedure_code,
 --               procedure_name, procedure_source ('1' = manual)
-INSERT INTO procedure_order_code
+INSERT IGNORE INTO procedure_order_code
     (procedure_order_id, procedure_order_seq, procedure_code, procedure_name, procedure_source)
 VALUES
 -- Phil Belford A1C x3 (200-202)
@@ -87,7 +87,7 @@ VALUES
 -- forms links IDs 80-100
 -- =============================================================================
 
-INSERT INTO form_soap (id, date, pid, user, groupname, authorized, activity, subjective, objective, assessment, plan)
+INSERT IGNORE INTO form_soap (id, date, pid, user, groupname, authorized, activity, subjective, objective, assessment, plan)
 VALUES
 
 -- ------------------------------------------------------------
@@ -298,7 +298,7 @@ VALUES
  'Start sertraline 50mg QD for anxiety. OB/GYN referral for menstrual irregularity evaluation. Return in 6 months for sertraline follow-up.');
 
 -- FORMS TABLE LINKS for new SOAPs (IDs 80-100)
-INSERT INTO forms
+INSERT IGNORE INTO forms
     (id, date, encounter, form_name, form_id, pid, user, groupname, authorized, deleted, formdir, provider_id)
 VALUES
 (80,  '2025-01-08 09:00:00', 100, 'SOAP', 37,  1, 'sarah.chen','Default',1,0,'soap',10),

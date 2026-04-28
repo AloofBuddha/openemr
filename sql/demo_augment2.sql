@@ -24,7 +24,7 @@ UPDATE list_options SET activity = 0 WHERE list_id = 'default_open_tabs' AND opt
 
 -- Pre-expand all clinically useful cards on the patient summary page for both providers.
 -- Without these entries, getUserSetting() returns NULL which PHP evaluates as == 0 (collapsed).
-INSERT INTO user_settings (setting_user, setting_label, setting_value) VALUES
+INSERT IGNORE INTO user_settings (setting_user, setting_label, setting_value) VALUES
 (10, 'medical_problem_ps_expand',       '1'),
 (10, 'allergy_ps_expand',               '1'),
 (10, 'current_prescriptions_ps_expand', '1'),
@@ -50,21 +50,21 @@ ON DUPLICATE KEY UPDATE setting_value = '1';
 -- Michael Thompson (pid=12): A1C trend + LDL + creatinine
 -- Encounters 131 (2024-10-08), 132 (2025-01-14), 133 (2025-04-22), 134 (2025-10-07)
 -- -----------------------------------------------------------------------
-INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+INSERT IGNORE INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
 VALUES
 (218, 10, 12, 131, '2024-10-08', 'complete', 1),
 (219, 10, 12, 132, '2025-01-14', 'complete', 1),
 (220, 10, 12, 133, '2025-04-22', 'complete', 1),
 (221, 10, 12, 134, '2025-10-07', 'complete', 1);
 
-INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+INSERT IGNORE INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
 VALUES
 (218, 218, '2024-10-10', 'final'),
 (219, 219, '2025-01-16', 'final'),
 (220, 220, '2025-04-24', 'final'),
 (221, 221, '2025-10-09', 'final');
 
-INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+INSERT IGNORE INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (218, '4548-4', 'Hemoglobin A1c',  '7.5', '%',    '4.0-5.6', 'H', 'final', '2024-10-10'),
 (218, '2089-1', 'LDL Cholesterol', '88',  'mg/dL', '<100',   'N', 'final', '2024-10-10'),
@@ -78,17 +78,17 @@ VALUES
 -- Aisha Williams (pid=13): CBC + CMP per rheumatology protocol
 -- Encounters 135 (2025-01-09), 136 (2025-07-17)
 -- -----------------------------------------------------------------------
-INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+INSERT IGNORE INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
 VALUES
 (222, 10, 13, 135, '2025-01-09', 'complete', 1),
 (223, 10, 13, 136, '2025-07-17', 'complete', 1);
 
-INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+INSERT IGNORE INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
 VALUES
 (222, 222, '2025-01-11', 'final'),
 (223, 223, '2025-07-19', 'final');
 
-INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+INSERT IGNORE INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (222, '6690-2', 'WBC',        '5.2', 'K/uL',  '4.0-11.0', 'N', 'final', '2025-01-11'),
 (222, '718-7',  'Hemoglobin', '12.1','g/dL',  '12.0-16.0','N', 'final', '2025-01-11'),
@@ -101,19 +101,19 @@ VALUES
 -- Robert Chen (pid=10): FEV1% spirometry (COPD progression)
 -- Encounters 126 (2024-11-12), 127 (2025-05-08), 128 (2025-12-03)
 -- -----------------------------------------------------------------------
-INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+INSERT IGNORE INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
 VALUES
 (224, 10, 10, 126, '2024-11-12', 'complete', 1),
 (225, 10, 10, 127, '2025-05-08', 'complete', 1),
 (226, 10, 10, 128, '2025-12-03', 'complete', 1);
 
-INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+INSERT IGNORE INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
 VALUES
 (224, 224, '2024-11-14', 'final'),
 (225, 225, '2025-05-10', 'final'),
 (226, 226, '2025-12-05', 'final');
 
-INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+INSERT IGNORE INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (224, '20150-9', 'FEV1 % Predicted', '62', '%', '80-100', 'L', 'final', '2024-11-14'),
 (225, '20150-9', 'FEV1 % Predicted', '60', '%', '80-100', 'L', 'final', '2025-05-10'),
@@ -123,19 +123,19 @@ VALUES
 -- Elena Rodriguez (pid=5): LDL trend on atorvastatin
 -- Encounters 112 (2024-09-18), 113 (2025-03-05), 114 (2025-09-11)
 -- -----------------------------------------------------------------------
-INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+INSERT IGNORE INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
 VALUES
 (227, 10, 5, 112, '2024-09-18', 'complete', 1),
 (228, 10, 5, 113, '2025-03-05', 'complete', 1),
 (229, 10, 5, 114, '2025-09-11', 'complete', 1);
 
-INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+INSERT IGNORE INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
 VALUES
 (227, 227, '2024-09-20', 'final'),
 (228, 228, '2025-03-07', 'final'),
 (229, 229, '2025-09-13', 'final');
 
-INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+INSERT IGNORE INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (227, '2089-1', 'LDL Cholesterol', '158', 'mg/dL', '<100', 'H', 'final', '2024-09-20'),
 (228, '2089-1', 'LDL Cholesterol', '132', 'mg/dL', '<100', 'H', 'final', '2025-03-07'),
@@ -145,19 +145,19 @@ VALUES
 -- James Park (pid=6): Spirometry (asthma — worsening trend)
 -- Encounters 115 (2025-02-20), 116 (2025-08-07), 117 (2026-02-14)
 -- -----------------------------------------------------------------------
-INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+INSERT IGNORE INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
 VALUES
 (230, 10, 6, 115, '2025-02-20', 'complete', 1),
 (231, 10, 6, 116, '2025-08-07', 'complete', 1),
 (232, 10, 6, 117, '2026-02-14', 'complete', 1);
 
-INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+INSERT IGNORE INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
 VALUES
 (230, 230, '2025-02-22', 'final'),
 (231, 231, '2025-08-09', 'final'),
 (232, 232, '2026-02-16', 'final');
 
-INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+INSERT IGNORE INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (230, '20150-9', 'FEV1 % Predicted', '82', '%', '80-100', 'N', 'final', '2025-02-22'),
 (231, '20150-9', 'FEV1 % Predicted', '78', '%', '80-100', 'L', 'final', '2025-08-09'),
@@ -167,17 +167,17 @@ VALUES
 -- Sarah Torres (pid=9): PHQ-9 + TSH (postpartum depression)
 -- Encounters 124 (2024-10-14), 125 (2025-02-18)
 -- -----------------------------------------------------------------------
-INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+INSERT IGNORE INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
 VALUES
 (233, 10, 9, 124, '2024-10-14', 'complete', 1),
 (234, 10, 9, 125, '2025-02-18', 'complete', 1);
 
-INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+INSERT IGNORE INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
 VALUES
 (233, 233, '2024-10-14', 'final'),
 (234, 234, '2025-02-18', 'final');
 
-INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+INSERT IGNORE INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (233, '44261-6', 'PHQ-9 Total Score', '14', 'score', '0-27', 'H', 'final', '2024-10-14'),
 (233, '3016-3',  'TSH',               '2.1','mIU/L', '0.4-4.0','N','final','2024-10-14'),
@@ -187,17 +187,17 @@ VALUES
 -- Wanda Moore (pid=3): TSH (rule out thyroid cause of anxiety)
 -- Encounters 106 (2024-08-12), 107 (2025-02-03)
 -- -----------------------------------------------------------------------
-INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+INSERT IGNORE INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
 VALUES
 (235, 10, 3, 106, '2024-08-12', 'complete', 1),
 (236, 10, 3, 107, '2025-02-03', 'complete', 1);
 
-INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+INSERT IGNORE INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
 VALUES
 (235, 235, '2024-08-14', 'final'),
 (236, 236, '2025-02-05', 'final');
 
-INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+INSERT IGNORE INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (235, '3016-3', 'TSH', '2.4', 'mIU/L', '0.4-4.0', 'N', 'final', '2024-08-14'),
 (236, '3016-3', 'TSH', '2.6', 'mIU/L', '0.4-4.0', 'N', 'final', '2025-02-05');
@@ -211,7 +211,7 @@ VALUES
 -- -----------------------------------------------------------------------
 -- PROBLEMS (auto-increment IDs)
 -- -----------------------------------------------------------------------
-INSERT INTO lists (pid, type, title, begdate, enddate, activity, diagnosis, verification)
+INSERT IGNORE INTO lists (pid, type, title, begdate, enddate, activity, diagnosis, verification)
 VALUES
 -- Carlos Mendez (pid=14)
 (14, 'medical_problem', 'Essential hypertension', '2024-08-01', NULL, 1, 'I10',   'confirmed'),
@@ -245,7 +245,7 @@ VALUES
 -- -----------------------------------------------------------------------
 -- PRESCRIPTIONS (IDs 57-69)
 -- -----------------------------------------------------------------------
-INSERT INTO prescriptions (id, patient_id, provider_id, encounter, drug, drug_id,
+INSERT IGNORE INTO prescriptions (id, patient_id, provider_id, encounter, drug, drug_id,
     rxnorm_drugcode, dosage, quantity, start_date, end_date, refills, active, note,
     txDate, usage_category_title, request_intent_title, uuid)
 VALUES
@@ -275,7 +275,7 @@ VALUES
 -- -----------------------------------------------------------------------
 -- ENCOUNTERS (IDs 137-146)
 -- -----------------------------------------------------------------------
-INSERT INTO form_encounter (id, date, reason, pid, encounter, provider_id, facility_id, pc_catid)
+INSERT IGNORE INTO form_encounter (id, date, reason, pid, encounter, provider_id, facility_id, pc_catid)
 VALUES
 (137, '2024-08-15 10:00:00', 'Hypertension - initial evaluation',   14, 137, 11, 3, 5),
 (138, '2025-08-20 10:00:00', 'HTN + lipid annual follow-up',        14, 138, 11, 3, 5),
@@ -291,7 +291,7 @@ VALUES
 -- -----------------------------------------------------------------------
 -- VITALS (form_vitals IDs 52-61)
 -- -----------------------------------------------------------------------
-INSERT INTO form_vitals
+INSERT IGNORE INTO form_vitals
     (id, uuid, date, pid, user, groupname, authorized, activity,
      bps, bpd, height, weight, temperature, temp_method, pulse, respiration, BMI, BMI_status, oxygen_saturation)
 VALUES
@@ -318,7 +318,7 @@ VALUES
 -- -----------------------------------------------------------------------
 -- SOAP NOTES (form_soap IDs 27-36)
 -- -----------------------------------------------------------------------
-INSERT INTO form_soap (id, date, pid, user, groupname, authorized, activity, subjective, objective, assessment, plan)
+INSERT IGNORE INTO form_soap (id, date, pid, user, groupname, authorized, activity, subjective, objective, assessment, plan)
 VALUES
 
 -- Carlos Mendez: initial HTN evaluation (encounter 137, 2024-08-15)
@@ -394,7 +394,7 @@ VALUES
 -- -----------------------------------------------------------------------
 -- FORMS TABLE LINKS for Rivera's encounters (IDs 60-79)
 -- -----------------------------------------------------------------------
-INSERT INTO forms
+INSERT IGNORE INTO forms
     (id, date, encounter, form_name, form_id, pid, user, groupname, authorized, deleted, formdir, provider_id)
 VALUES
 -- Vitals links
@@ -425,65 +425,65 @@ VALUES
 -- -----------------------------------------------------------------------
 
 -- Carlos Mendez: lipid panel x2
-INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+INSERT IGNORE INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
 VALUES
 (237, 11, 14, 137, '2024-08-15', 'complete', 1),
 (238, 11, 14, 138, '2025-08-20', 'complete', 1);
 
-INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+INSERT IGNORE INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
 VALUES
 (237, 237, '2024-08-17', 'final'),
 (238, 238, '2025-08-22', 'final');
 
-INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+INSERT IGNORE INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (237, '2089-1', 'LDL Cholesterol', '162', 'mg/dL', '<100', 'H', 'final', '2024-08-17'),
 (238, '2089-1', 'LDL Cholesterol', '110', 'mg/dL', '<100', 'H', 'final', '2025-08-22');
 
 -- Anna Kowalski: TSH x2
-INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+INSERT IGNORE INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
 VALUES
 (239, 11, 15, 139, '2024-04-10', 'complete', 1),
 (240, 11, 15, 140, '2025-04-18', 'complete', 1);
 
-INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+INSERT IGNORE INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
 VALUES
 (239, 239, '2024-04-12', 'final'),
 (240, 240, '2025-04-20', 'final');
 
-INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+INSERT IGNORE INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (239, '3016-3', 'TSH', '5.8', 'mIU/L', '0.4-4.0', 'H', 'final', '2024-04-12'),
 (240, '3016-3', 'TSH', '2.4', 'mIU/L', '0.4-4.0', 'N', 'final', '2025-04-20');
 
 -- Thomas Brown: A1C x2
-INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+INSERT IGNORE INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
 VALUES
 (241, 11, 16, 141, '2024-07-22', 'complete', 1),
 (242, 11, 16, 142, '2025-07-17', 'complete', 1);
 
-INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+INSERT IGNORE INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
 VALUES
 (241, 241, '2024-07-24', 'final'),
 (242, 242, '2025-07-19', 'final');
 
-INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+INSERT IGNORE INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (241, '4548-4', 'Hemoglobin A1c', '8.2', '%', '4.0-5.6', 'H', 'final', '2024-07-24'),
 (242, '4548-4', 'Hemoglobin A1c', '7.6', '%', '4.0-5.6', 'H', 'final', '2025-07-19');
 
 -- Kevin O'Brien: BMP + BNP x2 (CHF monitoring)
-INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+INSERT IGNORE INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
 VALUES
 (243, 11, 18, 145, '2024-09-05', 'complete', 1),
 (244, 11, 18, 146, '2025-03-12', 'complete', 1);
 
-INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+INSERT IGNORE INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
 VALUES
 (243, 243, '2024-09-05', 'final'),
 (244, 244, '2025-03-12', 'final');
 
-INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+INSERT IGNORE INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (243, '2160-0', 'Creatinine', '1.8', 'mg/dL', '0.7-1.3', 'H', 'final', '2024-09-05'),
 (243, '2823-3', 'Potassium',  '4.6', 'mEq/L', '3.5-5.1', 'N', 'final', '2024-09-05'),
@@ -495,7 +495,7 @@ VALUES
 -- -----------------------------------------------------------------------
 -- TODAY'S SCHEDULE — Dr. Rivera (2026-04-27)
 -- -----------------------------------------------------------------------
-INSERT INTO openemr_postcalendar_events
+INSERT IGNORE INTO openemr_postcalendar_events
     (pc_catid, pc_aid, pc_pid, pc_title, pc_time, pc_hometext,
      pc_eventDate, pc_startTime, pc_endTime, pc_duration, pc_alldayevent,
      pc_apptstatus, pc_prefcatid, pc_multiple, pc_sharing, pc_facility, pc_eventstatus)
