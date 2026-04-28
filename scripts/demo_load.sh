@@ -28,7 +28,6 @@ if [[ "${1:-}" == "--reset" ]]; then
     DELETE FROM prescriptions               WHERE patient_id BETWEEN 1 AND 18;
     DELETE FROM lists                       WHERE pid BETWEEN 1 AND 18;
     DELETE FROM issue_encounter             WHERE pid BETWEEN 1 AND 18;
-    DELETE FROM allergy                     WHERE pid BETWEEN 1 AND 18;
     DELETE FROM procedure_order             WHERE patient_id BETWEEN 1 AND 18;
     DELETE FROM procedure_report            WHERE procedure_report_id > 0;
     DELETE FROM procedure_result            WHERE procedure_result_id > 0;
