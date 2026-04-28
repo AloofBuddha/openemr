@@ -2,6 +2,7 @@
 
 An AI agent embedded in OpenEMR that gives physicians a 90-second patient briefing between exam rooms. Built as part of the Gauntlet AI Week 1 AgentForge sprint.
 
+**Repo:** https://labs.gauntletai.com/benjamincohen/agentforge  
 **Live demo:** http://198.211.103.246.nip.io
 
 ---
