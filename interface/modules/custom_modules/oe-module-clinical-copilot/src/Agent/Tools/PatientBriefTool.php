@@ -108,7 +108,8 @@ class PatientBriefTool
             "SELECT fe.encounter, fe.date, fe.reason,
                     fs.subjective, fs.objective, fs.assessment, fs.plan
              FROM form_encounter fe
-             LEFT JOIN form_soap fs ON fs.pid = fe.pid AND fs.encounter = fe.encounter
+             LEFT JOIN forms f  ON f.encounter = fe.encounter AND f.pid = fe.pid AND f.formdir = 'soap'
+             LEFT JOIN form_soap fs ON fs.id = f.form_id
              WHERE fe.pid = ?
              ORDER BY fe.date DESC LIMIT 1",
             [$patientId]
@@ -132,7 +133,7 @@ class PatientBriefTool
     private function fetchActiveMedications(int $patientId): array
     {
         $results = sqlStatement(
-            "SELECT id, drug, dosage, quantity, unit, route, interval, note
+            "SELECT id, drug, dosage, quantity, unit, route, `interval`, `note`
              FROM prescriptions
              WHERE patient_id = ? AND active = 1
              ORDER BY drug ASC",

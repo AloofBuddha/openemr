@@ -70,6 +70,34 @@ Dr. Chen's panel includes patients across hypertension, diabetes, COPD, CAD, anx
 
 ---
 
+## Building the Co-Pilot UI
+
+The widget is a React/TypeScript app built with Vite. Source lives in:
+
+```
+interface/modules/custom_modules/oe-module-clinical-copilot/copilot-ui/
+```
+
+Output is a single self-contained bundle at `public/js/copilot-bundle.js` (CSS inlined).
+
+**First-time setup:**
+
+```bash
+cd interface/modules/custom_modules/oe-module-clinical-copilot/copilot-ui
+npm install
+```
+
+**Rebuild after UI changes:**
+
+```bash
+cd interface/modules/custom_modules/oe-module-clinical-copilot/copilot-ui
+npm run build
+```
+
+The bundle is committed to the repo so the app runs without a build step for anyone who just clones and runs Docker. Only rebuild when you change files under `copilot-ui/src/`.
+
+---
+
 ## Project structure
 
 ```

@@ -12,6 +12,8 @@ declare(strict_types=1);
 
 namespace OpenEMR\Modules\ClinicalCopilot;
 
+use OpenEMR\Common\Csrf\CsrfUtils;
+use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\Events\PatientDemographics\RenderEvent;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
@@ -39,12 +41,14 @@ class Bootstrap
             return;
         }
 
-        $webRoot   = OEGlobalsBag::getInstance()->getWebRoot();
-        $publicUrl = $webRoot . self::MODULE_INSTALLATION_PATH . '/public';
-        $pid       = (int) $pid;
+        $session    = SessionWrapperFactory::getInstance()->getActiveSession();
+        $csrfToken  = CsrfUtils::collectCsrfToken($session);
+        $webRoot    = OEGlobalsBag::getInstance()->getWebRoot();
+        $publicUrl  = $webRoot . self::MODULE_INSTALLATION_PATH . '/public';
+        $pid        = (int) $pid;
 
         echo <<<HTML
-        <div id="copilot-widget" style="margin:0 0 12px 0;">
+        <div id="copilot-widget" style="display:none;">
             <div class="copilot-header">
                 <span><strong>&#129302; Clinical Co-Pilot</strong></span>
                 <div class="copilot-header-actions">
@@ -60,11 +64,10 @@ class Bootstrap
                 </div>
             </div>
         </div>
-        <link rel="stylesheet" href="{$publicUrl}/css/copilot-panel.css">
-        <script src="{$publicUrl}/js/copilot-panel.js"></script>
+        <script src="{$publicUrl}/js/copilot-bundle.js"></script>
         <script>
         (function() {
-            copilotInit({$pid}, '{$publicUrl}/chat.php');
+            copilotInit({$pid}, '{$publicUrl}/chat.php', '{$csrfToken}');
         })();
         </script>
         HTML;
