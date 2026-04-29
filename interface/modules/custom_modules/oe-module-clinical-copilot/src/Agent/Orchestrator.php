@@ -36,6 +36,7 @@ Rules:
 - For every specific data point (medication name/dose, lab value, visit reason), wrap the cited phrase in source markers: [[N]]the phrase[[/N]] where N is the source number. Only wrap the data phrase itself, not surrounding prose.
 - If data is missing, note it briefly (e.g. "No labs on file").
 - Do not diagnose or recommend treatments.
+- Close with a one-sentence synthesized observation that names the clinical pattern visible in the data. Connect trajectory (worsening, improving, stable) to the current therapy or context. Do not prescribe or recommend. Example: "HbA1c has risen 7.8%→9.1% over 15 months despite dual-agent therapy — glycemic control is worsening."
 - You have data for exactly one patient. If asked about any other patient by name, respond: "I only have access to [first name]'s chart right now."
 - At the very end of your response, on its own line, output exactly:
   SUGGESTIONS: followed by a JSON array of 2–3 follow-up questions using the patient's first name.
@@ -152,18 +153,23 @@ PROMPT;
             },
         );
 
-        // Parse suggestions block from end of response
+        // Parse suggestions block from end of response.
+        // Use strrpos to find the last SUGGESTIONS: marker, then extract the JSON array
+        // regardless of surrounding whitespace or whether the model added trailing text.
         $suggestions = [];
-        if (preg_match('/\nSUGGESTIONS:\s*(\[.*?\])\s*$/s', $fullText, $m)) {
-            $decoded = json_decode($m[1], true);
-            if (is_array($decoded)) {
-                $suggestions = array_values(array_filter($decoded, 'is_string'));
+        $sugPos = strrpos($fullText, 'SUGGESTIONS:');
+        if ($sugPos !== false) {
+            $rest = ltrim(substr($fullText, $sugPos + strlen('SUGGESTIONS:')));
+            if (preg_match('/(\[.*?\])/s', $rest, $m)) {
+                $decoded = json_decode($m[1], true);
+                if (is_array($decoded)) {
+                    $suggestions = array_values(array_filter($decoded, 'is_string'));
+                }
             }
         }
 
-        if (!empty($suggestions)) {
-            $this->emitEvent('suggestions', ['suggestions' => $suggestions]);
-        }
+        // Always emit so the client doesn't wait for an event that never arrives
+        $this->emitEvent('suggestions', ['suggestions' => $suggestions]);
 
         // Cache the brief on first turn
         if ($isBrief && !empty($fullText)) {
