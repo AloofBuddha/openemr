@@ -1,7 +1,7 @@
 # Architecture: Clinical Co-Pilot
 
-**Informed by:** AUDIT.md findings  
-**Traces to:** USERS.md use cases UC-1 through UC-5  
+**Informed by:** AUDIT.md findings
+**Traces to:** USERS.md use cases UC-1 through UC-5
 **Date:** 2026-04-27
 
 ---
@@ -30,32 +30,32 @@ The architecture rests on three decisions shaped entirely by the audit findings:
 ┌─────────────────────────────────────────────────────┐
 │                    OpenEMR UI                       │
 │  ┌─────────────────┐   ┌──────────────────────────┐ │
-│  │  Existing Chart  │   │  Co-Pilot Side Panel     │ │
-│  │  View / Workflow │   │  (Angular component in   │ │
-│  │                  │   │   oe-module-copilot)      │ │
+│  │  Existing Chart  │   │  Co-Pilot Panel          │ │
+│  │  View / Workflow │   │  (React/TypeScript IIFE  │ │
+│  │                  │   │   bundle, ~187KB)         │ │
 │  └─────────────────┘   └──────────┬───────────────┘ │
-└──────────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────┘
                                     │ HTTP (same origin)
                           ┌─────────▼──────────┐
-                          │  Module PHP Backend │
-                          │  /api/copilot/chat  │
-                          │  (session-authed)   │
+                          │  Module PHP Backend│
+                          │  /api/copilot/chat │
+                          │  (session-authed)  │
                           └─────────┬──────────┘
                                     │
               ┌─────────────────────▼──────────────────┐
-              │           Agent Orchestrator            │
-              │  - Auth check (care relationship)       │
-              │  - Tool dispatch (parallel)             │
-              │  - Audit logging                        │
-              │  - LLM call (Claude, streaming)         │
-              │  - Verification pass                    │
+              │           Agent Orchestrator           │
+              │  - Auth check (care relationship)      │
+              │  - Tool dispatch (parallel)            │
+              │  - Audit logging                       │
+              │  - LLM call (Claude, streaming)        │
+              │  - Verification pass                   │
               └──┬──────────────┬──────────────┬───────┘
                  │              │              │
          ┌───────▼──┐   ┌───────▼──┐   ┌──────▼──────┐
          │ Patient  │   │Encounter │   │    Lab /    │
          │ Service  │   │ Service  │   │  Rx Service │
          └───────┬──┘   └───────┬──┘   └──────┬──────┘
-                 └──────────────┴──────────────┘
+                 └──────────────┴─────────────┘
                                 │
                          ┌──────▼──────┐
                          │   MariaDB   │
@@ -70,31 +70,31 @@ The agent lives entirely within a custom OpenEMR module:
 
 ```
 interface/modules/custom_modules/oe-module-clinical-copilot/
-├── ModuleManagerListener.php       # Module registration
+├── openemr.bootstrap.php           # Module entry point
 ├── src/
-│   ├── Bootstrap.php               # Event subscriptions, route registration
-│   ├── Controller/
-│   │   └── CopilotController.php   # POST /api/copilot/chat handler
+│   ├── Bootstrap.php               # RenderEvent listener — injects widget into demographics.php
 │   ├── Agent/
-│   │   ├── Orchestrator.php        # Tool dispatch loop + LLM call
-│   │   ├── Tools/
-│   │   │   ├── PatientBriefTool.php      # UC-1
-│   │   │   ├── MedicationsTool.php       # UC-2
-│   │   │   ├── EncounterHistoryTool.php  # UC-3
-│   │   │   ├── LabTrendTool.php          # UC-4
-│   │   │   └── ScheduleTool.php          # UC-5
-│   │   ├── Verification/
-│   │   │   └── SourceAttributionChecker.php
-│   │   └── Observability/
-│   │       └── AgentAuditLogger.php
-│   └── Authorization/
-│       └── PatientAccessGuard.php        # Care relationship check
+│   │   ├── Orchestrator.php        # Data gather → LLM call → SSE stream
+│   │   └── Tools/
+│   │       └── PatientBriefTool.php      # UC-1: demographics, appointment, encounter, meds, labs
+│   ├── Authorization/
+│   │   └── PatientAccessGuard.php        # Care relationship check (encounter or today's schedule)
+│   └── Observability/
+│       └── AgentAuditLogger.php          # Writes to copilot_audit_log per request
 ├── public/
+│   ├── chat.php                    # SSE endpoint — auth, PatientAccessGuard, Orchestrator
 │   └── js/
-│       └── copilot-panel.js              # Streaming chat UI component
+│       └── copilot-bundle.js       # Compiled React/TypeScript IIFE (~187KB, CSS inlined)
+├── copilot-ui/                     # UI source (Vite + React + TypeScript)
+│   └── src/
+│       ├── main.tsx                # Entry — mounts CopilotPanel into #copilot-widget
+│       ├── CopilotPanel.tsx        # Streaming hook, citation rendering, source drawer
+│       └── styles.css
 └── sql/
-    └── install.sql                       # copilot_audit_log + copilot_brief_cache tables
+    └── install.sql                 # copilot_brief_cache + copilot_audit_log tables
 ```
+
+**UC-1 is the only implemented use case.** UC-2 through UC-5 tools are planned (see §4) but not yet written.
 
 ---
 
@@ -140,37 +140,45 @@ Each tool maps directly to a USERS.md use case. Tools have no side effects — t
 | `get_lab_trend` | UC-4 | procedure_result (filtered by LOINC code, ordered by date) | 400ms |
 | `get_today_schedule` | UC-5 | openemr_postcalendar_events + lightweight per-patient scan | 2000ms |
 
-For UC-1 (the most common case), the first four tools run in parallel using PHP fibers or concurrent HTTP sub-requests to the service layer. The brief is assembled from whichever results return within the latency budget; missing data is explicitly noted rather than silently omitted.
+For UC-1 (the only implemented case), `PatientBriefTool::gather()` runs the four queries sequentially — demographics, appointment, last encounter, medications, labs. This is sufficient at demo scale (<500ms total). Parallel execution via PHP fibers is the planned path for production, where query volume and panel size make sequential latency unacceptable.
 
 ---
 
 ## 5. LLM Integration
 
-**Model:** `claude-sonnet-4-6` (Anthropic)  
+**Model:** `claude-sonnet-4-6` (Anthropic)
 **Rationale:** Tool use support, 200K context window (handles full encounter histories), strong instruction-following for source attribution, streaming support.
 
 **Prompt architecture:**
 
 ```
 [System prompt — static, no PHI]
-You are a Clinical Co-Pilot embedded in OpenEMR. You assist physicians
-by synthesizing patient data from their EHR. Rules:
-- Only state facts present in the tool results provided.
-- Cite the source for every factual claim (e.g., "[from: last encounter 2026-03-12]").
-- If data is missing or incomplete, say so explicitly.
-- Do not diagnose. Do not recommend treatments. Surface data only.
-- Refuse questions about patients not in the provided context.
+You are a Clinical Co-Pilot embedded in an EHR. Give physicians a fast,
+skimmable pre-encounter brief.
 
-[Tool results — structured, patient data arrives here only]
-<tool_result name="get_patient_brief">
-{ ...structured JSON from PatientBriefTool... }
-</tool_result>
+Rules:
+- Only state facts present in the provided data. Never fabricate clinical details.
+- Write 4–6 bullet points. No headers. Telegraphic style.
+- Lead with why here today, then key changes since last visit, active meds
+  of concern, flagged labs.
+- For every specific data point, wrap the cited phrase in source markers:
+  [[N]]the phrase[[/N]] where N is the source number.
+- If data is missing, note it briefly (e.g. "No labs on file").
+- Do not diagnose or recommend treatments.
 
-[User turn]
-"Brief me on my next patient."
+[User turn — numbered SOURCES list, PHI arrives here only]
+Brief this patient. Cite source numbers inline next to each fact.
+
+PATIENT: Phil Belford, 54y M
+
+SOURCES:
+[1] Today's appointment: Hypertension follow-up
+[2] Last encounter (2025-11-15): HTN — BP improving on lisinopril
+[3] Medication: Lisinopril 10 mg (QD)
+[4] Lab: Hemoglobin A1c: 7.5 % [ABNORMAL: H] — 2024-10-10
 ```
 
-PHI never appears in the system prompt. It arrives only in tool results, which are structured JSON. The model is instructed to treat tool results as the sole source of truth.
+PHI never appears in the system prompt — it arrives only in the user turn as a numbered source list. The `[[N]]phrase[[/N]]` markers in the response are stripped from the rendered text; the phrase itself becomes a clickable citation button in the UI.
 
 **Streaming:** The response streams token-by-token to the UI. The physician sees the first sentence within ~3 seconds of submitting the query.
 
@@ -180,71 +188,51 @@ PHI never appears in the system prompt. It arrives only in tool results, which a
 
 Every factual claim in the agent's response is clickable. Clicking opens the source record in a side panel with the relevant field highlighted — the same pattern used in legal AI tools like Harvey and Casetext. A physician who sees "Phil is taking lisinopril 10mg" can click it and see the actual prescriptions row, lisinopril highlighted. There is no ambiguity about whether a claim is sourced.
 
-### Output Format — Structured Claims, Not Free Text
+### Output Format — Streaming Markdown with Inline Citation Markers
 
-The agent returns a JSON structure of claims, each with a citation ID — not a markdown paragraph:
+The model streams markdown bullet points. Every specific data phrase is wrapped in `[[N]]phrase[[/N]]` markers keyed to a source number from the SOURCES list:
 
-```json
-{
-  "response": [
-    {
-      "text": "Phil is taking lisinopril 10mg daily",
-      "citation_id": "rx_042",
-      "verified": true
-    },
-    {
-      "text": "His last A1C was 7.4 on March 12, 2026",
-      "citation_id": "lab_019",
-      "verified": true
-    },
-    {
-      "text": "No documented specialist follow-up since the cardiology referral",
-      "citation_id": null,
-      "verified": false
-    }
-  ]
-}
+```
+• [[1]]Hypertension follow-up[[/1]] — returning visit
+• [[3]]Lisinopril 10mg[[/3]] QD — no changes since last visit
+• [[4]]A1C 7.5%[[/4]] — flagged high, up from prior baseline
+• No prior encounter SOAP notes on file
 ```
 
-Verified claims with a `citation_id` render as clickable links. Unverified claims render with a `⚠` prefix and distinct styling.
+During streaming, markers are stripped so the text reads cleanly. Once streaming completes, each cited phrase becomes a clickable inline button. Clicking opens the source drawer.
 
-### Citation Registry
+### Source Registry
 
-The backend builds a citation registry from tool results during the request — a map from citation ID to the exact database record and field:
+`Orchestrator::buildUserMessage()` builds the source registry before the LLM call — a map from source number to the structured EHR record fields:
 
 ```json
 {
-  "rx_042": {
-    "table": "prescriptions",
-    "record_id": 42,
-    "field": "drug",
-    "display_label": "Prescription — Lisinopril 10mg QD",
-    "highlighted_value": "Lisinopril 10mg",
-    "context": {
-      "drug": "Lisinopril",
-      "dosage": "10mg",
-      "start_date": "2026-01-15",
-      "active": 1,
-      "provider": "Dr. Chen"
-    }
+  "3": {
+    "type": "medication",
+    "label": "Lisinopril 10 mg",
+    "fields": [
+      { "key": "Drug",      "value": "Lisinopril" },
+      { "key": "Dose",      "value": "10 mg" },
+      { "key": "Frequency", "value": "QD" }
+    ],
+    "scroll_to": "#prescriptions_ps_expand"
   }
 }
 ```
 
-Tool results are structured with record IDs so every piece of data can be traced back. The LLM is prompted to reference citation IDs from this registry — it cannot cite a record that was not returned by a tool.
+Sources are emitted to the browser as an SSE `sources` event before streaming begins, so citation buttons are interactive from the first token. The "View in chart" button in the drawer uses `scroll_to` to expand and scroll to the relevant OpenEMR card on the same page.
 
 ### Verification Layers
 
-**Layer 1 — Prompt-enforced sourcing:** The model only uses citation IDs provided in its context. No citation ID = no sourced claim.
+**Layer 1 — Prompt-enforced sourcing:** The model is instructed to wrap every specific data point with `[[N]]...[[/N]]`. A claim without a marker is prose context, not a sourced fact.
 
-**Layer 2 — Structural cross-check (post-processing):** `SourceAttributionChecker` verifies every `citation_id` in the response exists in the registry and that the cited value matches. Mismatches are downgraded to `verified: false` before display:
+**Layer 2 — Visual ground truth:** The source drawer shows the raw database record fields — not AI rephrasing of them. The physician can compare the claim in the brief against the actual record row directly.
 
-```
-⚠ "lisinopril 20mg" — source record shows 10mg. Verify manually.
-```
+**What this catches:** Fabrication against retrieved data — if the model states a value not in the source list, there will be no citation wrapping it, making it visually distinct.
 
-**What this catches:** Hallucinated specifics — wrong dosages, wrong dates, fabricated values, wrong record references.  
-**What this does not catch:** Errors of omission — if a medication exists outside OpenEMR, the agent won't know to flag its absence. Documented in the UI on every response.
+**What this does not catch:** Errors of omission — if a medication exists outside OpenEMR and was never recorded, the agent correctly says "not on file" but cannot distinguish that from "does not exist." Disclosed in the UI footer on every response.
+
+**Not yet built:** A post-processing `SourceAttributionChecker` that programmatically cross-checks cited values against the registry (planned for Early Submission).
 
 ---
 
