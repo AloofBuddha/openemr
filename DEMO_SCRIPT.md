@@ -1,69 +1,127 @@
-# MVP Demo Script
+# Demo Script + Interview Talking Points
 
-Target: 4 minutes. Structured around the three things the graders want: decisions + tradeoffs, hardest problems, architecture.
-
----
-
-## 1. The Problem (30s) — no screen, or show patient demographics page
-
-> "A physician walking between exam rooms has 90 seconds to remember who their next patient is, why they're here, and what's changed since the last visit. OpenEMR has all that information — it requires clicking through 4–6 screens to find it. By the time you're done, you've spent the visit looking at a screen instead of the patient. That's the problem this agent solves."
+Target: 4–5 minutes for the video. Use this doc as a living log — add a bullet under "Decisions worth calling out" every time you make a non-obvious architectural or engineering choice.
 
 ---
 
-## 2. The Audit Finding That Changed Everything (45s) — show AUDIT.md briefly
+## Decisions Worth Calling Out
 
-> "Before writing a line of agent code I audited OpenEMR's codebase. The most important finding: the REST API checks whether a user has the 'patients' permission — but not whether they're authorized to access *this specific patient*. Dr. Rivera could query Dr. Chen's patients with no ACL violation triggered. That single finding changed the entire architecture. Instead of building on the REST API — which would have inherited that gap — the agent calls OpenEMR's PHP service layer directly, where I can enforce care-relationship checks before any data is retrieved."
+Each entry below is a non-obvious choice made during the build. These are the things to mention in the demo video and defend in the AI interview.
+
+### Security
+
+**PatientAccessGuard — enforced at the HTTP layer, not the service layer**
+The OpenEMR REST API checks whether a user has the `patients` permission, but not whether they're authorized to access *this specific patient*. Dr. Rivera could query Dr. Chen's patient with no ACL violation. The agent's PHP endpoint calls `PatientAccessGuard::assertAccess()` before the tool runs — checks both prior encounter relationship and today's schedule. Returns 403 if neither condition is met.
+*Interview angle: "The audit finding that changed the architecture."*
+
+**Prompt injection hardened at three vectors**
+Appointment reason, SOAP note fields, and medication note fields can all contain arbitrary text entered by clinic staff. The system prompt explicitly instructs the model to treat SOURCES values as data, not instructions — and to flag (not echo) any field that contains instruction-like text. Tested: all three injection vectors pass at 100%.
+*Interview angle: "We don't just rely on Claude's robustness — we named the attack surface explicitly."*
+
+### Verification
+
+**Citation markers grounded in a real source registry**
+Every `[[N]]phrase[[/N]]` in the brief maps to a source object built from the actual DB records at request time — not inferred from the LLM's output. When a physician clicks a citation, they see the raw EHR row. If the model cites a number that doesn't exist in the registry, the UI silently drops it. The claim can only be verified against real data.
+*Interview angle: "Source attribution is mechanical, not conversational."*
+
+**Brand/generic LLM judge for medication verification**
+The medication fabrication check uses regex to detect drug names in the brief that aren't in the patient's prescription list. When something is flagged, a second Haiku call determines whether it's a known brand/generic alias (e.g. "Jardiance" → empagliflozin). Passes if all flagged names resolve; only fails on genuine fabrication. This is a deliberate two-pass design: cheap regex handles 95% of cases, LLM only fires on ambiguous positives.
+*Interview angle: "Regex first, LLM only on positive — the cheapest path that's still accurate."*
+
+### Observability
+
+**HIPAA-safe observability split**
+Using a managed tracing tool (LangSmith) would mean PHI leaves your infrastructure. The split: runtime observability goes to `copilot_audit_log` — tools called, timing, tokens, cost — stored in the same MariaDB as the patient data, no prompt content. The eval harness uses synthetic demo data only and can safely use LangSmith for run tracking without a compliance concern.
+*Interview angle: "Observability and HIPAA pull in opposite directions — the architecture addresses both."*
+
+### Cost
+
+**Session cost model, not per-call**
+The co-pilot now supports multi-turn follow-up questions. Each follow-up re-sends the patient context plus conversation history, so cost grows with depth. A brief-only session: ~$0.005. Brief + 2 follow-ups: ~$0.015. Blended effective cost at 70% cache hit rate: ~$0.004/encounter. The server-side brief cache (30-min TTL) and same-day localStorage conversation cache are the primary levers — a physician who revisits the same patient mid-shift triggers one LLM call, not two.
+*Interview angle: "The caching architecture is also the cost architecture."*
+
+### Evaluation
+
+**Eval suite covers failure modes, not just happy paths**
+15 brief cases + 3 adversarial multi-turn cases. Edge cases include: completely empty record, prompt injection in 3 vectors, cross-physician access, brand/generic drug name aliasing, missing lab/med/encounter sections. All adversarial follow-up cases pass at 100% (cross-patient refusal, no clinical prescription advice, out-of-scope pharmacology acknowledged).
+*Interview angle: "What did you find when you ran it? The injection cases caught a real gap we fixed."*
+
+**`--report` flag generates readable markdown**
+`python run.py --offline --followup --report eval_results.md` writes a narrative markdown with summary tables + per-case collapsible model output. Built because the LangSmith dashboard wasn't readable for understanding what each test case actually represented.
+*Interview angle: "Observability applies to the eval harness too."*
 
 ---
 
-## 3. Architecture (60s) — show ARCHITECTURE.md diagram or module folder structure
+## Demo Flow (4 min)
 
-> "The agent is a custom OpenEMR module. When a physician opens a patient chart, the module fires an SSE request to a PHP endpoint. The orchestrator gathers patient data — today's appointment, last encounter SOAP note, active medications, recent labs — and sends it as a structured message to Claude. Critically, PHI only arrives in the tool results, never in the system prompt. The model is instructed to cite a source number for every specific data point it states. Those source numbers are backed by a registry we build at request time from the actual database records — so when a physician clicks a citation, they see the raw EHR row, not more AI prose. Every request is also logged to a copilot_audit_log table — tools called, timing, token cost — which fills the HIPAA chart-access audit gap I found in the audit."
+### 1. The Problem (30s) — show patient demographics page
 
----
-
-## 4. Live Demo (60s) — prod at http://198.211.103.246.nip.io
-
-> "Here's the live system."
-
-- Log in as Dr. Chen: `sarah.chen` / `Sarah1234!`
-- Open a patient with a today's appointment
-- Watch the brief stream in — point out it starts within a second or two
-- Click one of the underlined citation phrases
-- Show the source drawer: *"This is the raw database record — not AI interpretation, the actual prescriptions row."*
-- Click "View in chart" — show it scrolling to the relevant card on the page
-
-> "The physician never leaves this page. One glance, one tap to verify any claim."
+> "A physician walking between exam rooms has 90 seconds to remember who their next patient is, why they're here, and what's changed since the last visit. OpenEMR has all that information — finding it requires clicking through 4–6 screens. By the time you're done, you've spent the visit looking at a screen instead of the patient."
 
 ---
 
-## 5. Hardest Problems (45s)
+### 2. The Audit Finding That Shaped the Architecture (30s) — show AUDIT.md briefly
 
-> "Two hard problems worth calling out. First: **errors of omission**. The verification system catches the model citing wrong values — wrong dosage, wrong date. What it can't catch is when something exists outside OpenEMR and was never recorded. The agent will correctly say 'no blood thinner on record' — which is factually true, but potentially dangerous if the physician reads that as a clinical negative. The UI has to communicate this every single time, not just in onboarding. Second: **HIPAA constraints on observability**. Using a managed tracing tool like LangSmith means PHI leaves your infrastructure. The solution is layered: runtime observability stays in our own audit log table with no prompt content stored; the eval harness runs against synthetic demo data only and can use LangSmith without a compliance concern."
+> "Before writing a line of agent code I audited OpenEMR's codebase. Key finding: the REST API has no per-patient authorization — Dr. Rivera could query Dr. Chen's patients with no ACL violation. That single finding drove the architecture: the agent calls the PHP service layer directly, where I enforce a care-relationship check before any data is retrieved."
 
 ---
 
-## 6. What's Next (30s) — show evals/ directory briefly
+### 3. Live Demo (90s) — prod at http://198.211.103.246.nip.io
 
-> "UC-1 is shipped. The eval harness runs 12 test cases — including prompt injection, empty records, and patients with abnormal labs — to catch regressions as we build. UC-2 through UC-5 add medication interaction questions, full encounter history, lab trends, and a day-start schedule scan. The architecture is ready for those; the eval suite is designed to grow with them."
+Log in as Dr. Chen: `sarah.chen` / `Sarah1234!`
+
+1. Open a patient with a today's appointment (Phil Belford or Marcus Johnson)
+2. Watch the brief stream — point out it starts within ~1s
+3. Click an underlined citation phrase
+4. Show the source drawer: *"This is the raw database record — not AI interpretation, the actual prescriptions row."*
+5. Click "View in chart" — show it scrolling to the relevant EHR card
+6. Ask a follow-up question (e.g. "Show me Marcus's A1C trend")
+7. Show the multi-turn response with a compact table + new suggestion chips
+
+> "The physician never leaves this page. Inline citations so every claim is verifiable in one tap. Follow-up questions answered in context."
+
+---
+
+### 4. How We Know It Works (45s) — show eval_results.md
+
+> "The eval harness runs 18 cases including prompt injection in three vectors, cross-physician access, brand/generic drug name aliasing, and multi-turn adversarial follow-ups. Most checks run at 100%. The one interesting case: when the model uses a brand name — Jardiance — that isn't in the prescriptions table, a second LLM call determines it's an alias for empagliflozin, which is. Regex first, LLM only on ambiguous positives."
+
+---
+
+### 5. The Hard Problem We Haven't Solved (30s)
+
+> "Errors of omission. The system can't detect what's missing from the record. A medication prescribed by an outside specialist and never entered into OpenEMR is invisible — and the agent's 'not on record' response looks identical to a genuine negative. The UI communicates this limitation on every brief, but it's a constraint the physician must internalize."
 
 ---
 
 ## Before You Hit Record
 
-- [ ] Log into prod, confirm a patient has an appointment today (Phil Belford is pinned)
-- [ ] Clear the brief cache so it streams live: run in Docker MySQL — `DELETE FROM copilot_brief_cache WHERE patient_id = 1;`
-- [ ] Have AUDIT.md, ARCHITECTURE.md, and the module folder open in tabs to cut to
-- [ ] Keep DECISIONS.md open as a crib sheet for any question you want to go deeper on
+- [ ] Log into prod, confirm a patient has an appointment today
+- [ ] Clear brief cache so it streams live: `DELETE FROM copilot_brief_cache WHERE patient_id = 1;`
+- [ ] Have `eval_results.md` open to cut to for the eval section
+- [ ] Have AUDIT.md open to cut to for the audit section
 
-## Crib Sheet — if you go off script
+---
 
-**Why service layer over REST API?** REST layer has no per-patient auth — any credentialed user can query any patient. Service layer is where I can enforce the care-relationship check.
+## Interview Crib Sheet
 
-**Why Harvey-style drawer over footnotes?** Footnotes just show a number. The drawer shows the raw EHR record — field by field, from the actual database row. The physician can see it's not more AI output.
+**Why service layer over REST API?**
+REST layer has no per-patient authorization — any credentialed user can query any patient. Service layer is where the care-relationship check lives.
 
-**Why not LangGraph?** This agent is single-turn. LangGraph adds stateful graph complexity that has no use case yet. It becomes relevant when we add multi-turn conversation for UC-2 forward.
+**Why Harvey-style source drawer over footnotes?**
+Footnotes show a number. The drawer shows the raw EHR record — field by field, from the actual database row. The physician can see it's not more AI output.
 
-**Biggest unsolved problem?** Errors of omission. The system can't detect what's missing from the record. A medication prescribed by an outside specialist and never entered into OpenEMR is invisible to the agent — and the agent's "not on record" response looks identical to a genuine negative.
+**Why not stream the brief from a queue / background job?**
+The physician opens the chart and needs context immediately. A background job adds latency and complexity with no benefit — the SSE stream starts within one second of page load, and the brief completes in 3–5s. Cache handles repeat loads at $0.00.
 
-**Cost at scale?** ~$0.005–0.009 per brief at Sonnet pricing. At 1,000 users/day that's ~$1,000/month. Architectural levers: prompt caching on the static system prompt (~90% discount on input tokens), Haiku for bulk UC-5 scans, and pre-computing overnight briefs at high scale.
+**Why not LangGraph or an agent framework?**
+This agent is single-pass with a fixed tool set. LangGraph adds stateful graph complexity that has no use case here. It becomes relevant if we add dynamic tool selection or multi-step reasoning chains (UC-3 lab trend analysis).
+
+**Biggest unsolved problem?**
+Errors of omission. The system can't detect what's missing from the record.
+
+**Cost at scale?**
+~$0.004/encounter blended (70% cache hit rate, ~40% of sessions include follow-ups). At 10K users: ~$638/month on LLM alone. Key levers: appointment-scoped brief cache, same-day localStorage conversation cache, Haiku for follow-up turns at scale. Full breakdown in `COST_ANALYSIS.md`.
+
+**What did you find when you ran the evals?**
+The prompt injection case in the appointment reason field was initially failing — the model echoed the injected string verbatim. Fixed by adding an explicit system prompt instruction to flag (not echo) field values containing instruction-like text. All three injection vectors now pass.
