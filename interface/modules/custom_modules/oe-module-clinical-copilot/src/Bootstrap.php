@@ -41,18 +41,19 @@ class Bootstrap
             return;
         }
 
-        $session    = SessionWrapperFactory::getInstance()->getActiveSession();
-        $csrfToken  = CsrfUtils::collectCsrfToken($session);
-        $webRoot    = OEGlobalsBag::getInstance()->getWebRoot();
-        $publicUrl  = $webRoot . self::MODULE_INSTALLATION_PATH . '/public';
-        $pid        = (int) $pid;
+        $session     = SessionWrapperFactory::getInstance()->getActiveSession();
+        $csrfToken   = CsrfUtils::collectCsrfToken($session);
+        $physicianId = (int) $session->get('authUserID');
+        $webRoot     = OEGlobalsBag::getInstance()->getWebRoot();
+        $publicUrl   = $webRoot . self::MODULE_INSTALLATION_PATH . '/public';
+        $pid         = (int) $pid;
 
         echo <<<HTML
         <div id="copilot-widget" style="display:none;"><div id="copilot-root"></div></div>
         <script src="{$publicUrl}/js/copilot-bundle.js"></script>
         <script>
         (function() {
-            copilotInit({$pid}, '{$publicUrl}/chat.php', '{$csrfToken}');
+            copilotInit({$pid}, '{$publicUrl}/chat.php', '{$csrfToken}', {$physicianId});
         })();
         </script>
         HTML;

@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Orchestrates the patient brief: gather data → call Claude → stream response.
+ * Orchestrates patient conversations: gather data → call Claude → stream response.
  *
  * @package   OpenEMR
  * @link      https://www.open-emr.org
@@ -19,19 +19,56 @@ use OpenEMR\Modules\ClinicalCopilot\Observability\AgentAuditLogger;
 
 class Orchestrator
 {
-    private const MODEL = 'claude-sonnet-4-6';
-    private const MAX_TOKENS = 512;
+    private const MODEL      = 'claude-sonnet-4-6';
+    private const MAX_TOKENS = 1024;
 
-    private const SYSTEM_PROMPT = <<<'PROMPT'
+    // First-turn: structured brief with citation markers + suggestion chips
+    private const BRIEF_SYSTEM_PROMPT = <<<'PROMPT'
 You are a Clinical Co-Pilot embedded in an EHR. Give physicians a fast, skimmable pre-encounter brief.
 
 Rules:
 - Only state facts present in the provided data. Never fabricate clinical details.
 - Write 4–6 bullet points. No headers. Telegraphic style — short phrases, not sentences.
-- Lead with why here today, then key changes since last visit, active meds of concern, flagged labs.
-- For every specific data point (medication name/dose, lab value, visit reason), wrap the cited phrase in source markers: [[N]]the phrase[[/N]] where N is the source number. Example: "[[3]]Jardiance 10mg[[/3]] — no changes". The markers are invisible to the reader; only wrap the data phrase itself, not surrounding prose.
+- Always open with today's appointment reason (from the appointment source). If no appointment is on file, note it.
+- If the last encounter date is more than 6 months before today's visit date, add a bullet flagging this: "⚠ Last seen [date] — [N] months ago" and include a one-phrase recap from that encounter's assessment if available.
+- If the last encounter SOAP plan mentions a referral, pending lab, or follow-up item with no subsequent entry in the data, flag it as an open item (e.g. "⚠ Open: [item] from [date] visit — no follow-up recorded").
+- Then cover: key changes since last visit, active meds of concern, flagged labs.
+- For every specific data point (medication name/dose, lab value, visit reason), wrap the cited phrase in source markers: [[N]]the phrase[[/N]] where N is the source number. Only wrap the data phrase itself, not surrounding prose.
 - If data is missing, note it briefly (e.g. "No labs on file").
 - Do not diagnose or recommend treatments.
+- You have data for exactly one patient. If asked about any other patient by name, respond: "I only have access to [first name]'s chart right now."
+- At the very end of your response, on its own line, output exactly:
+  SUGGESTIONS: followed by a JSON array of 2–3 follow-up questions using the patient's first name.
+
+  Chip selection — include only chips that apply to this patient's actual data:
+  1. Lab trend: if the same lab test appears 2 or more times across different dates in the data, include "Show [first name]'s [test name] trend"
+  2. History gap: if the last encounter was more than 6 months ago, include "Walk me through [first name]'s history since [last encounter date]"
+  3. Medication check: if there are active medications, include one chart-answerable question about a specific drug — e.g. "When was [first name]'s [drug name] last adjusted?" (not pharmacology)
+  Use the patient's first name. Be specific ("Show Marcus's A1C trend" not "Show lab trends"). Every chip must be answerable from the chart data alone.
+PROMPT;
+
+    // Follow-up turns: concise answer grounded in the same patient context
+    private const FOLLOWUP_SYSTEM_PROMPT = <<<'PROMPT'
+You are a Clinical Co-Pilot embedded in an EHR. Answer the physician's follow-up question concisely, grounded in the patient data provided earlier in this conversation.
+
+Rules:
+- Only state facts present in the patient data. Never fabricate clinical details.
+- 1–3 sentences for simple answers. Be direct. Telegraphic style.
+- For every specific data point, wrap in source markers: [[N]]the phrase[[/N]].
+- Do not diagnose or recommend treatments.
+- If a question has both a chart-answerable part and a general clinical part: answer the chart part directly first, then briefly note what falls outside the chart. Never redirect with "you could ask instead" — just answer what you can from the data.
+- You have data for exactly one patient. If asked about any other patient by name, respond: "I only have access to [current patient first name]'s chart right now."
+- If a question is entirely unanswerable from chart data (pure clinical reference), say so in one sentence and move on.
+- For trend questions (multiple data points over time — lab values, weight, BP): format as a compact markdown table with columns Date | Value | Flag. Newest row first. Only include rows present in the data. Add a one-sentence trend summary after the table.
+- At the very end of your response, on its own line, output exactly:
+  SUGGESTIONS: followed by a JSON array of 0–2 follow-up questions answerable from this patient's chart data.
+
+  Chip selection after follow-ups — pick naturally from what was just answered:
+  - After a lab trend answer: suggest the medication context if relevant (e.g. "What medications is [first name] on for this condition?")
+  - After a medication answer: suggest related lab results (e.g. "What do [first name]'s recent labs show since starting [drug]?")
+  - After a history recap: suggest today's visit context (e.g. "What is today's appointment for?")
+  - After a today's-visit answer: suggest an open item if one exists from the brief
+  - Use [] if no follow-up fits naturally from the data just presented.
 PROMPT;
 
     public function __construct(
@@ -39,51 +76,73 @@ PROMPT;
         private readonly AgentAuditLogger $auditLogger,
     ) {}
 
-    public function streamBrief(int $patientId, int $physicianId, bool $forceRefresh = false): void
+    /**
+     * Multi-turn chat: manages patient context in session, routes brief vs follow-up.
+     *
+     * @param list<array{role: string, content: string}> $messages Full conversation so far
+     */
+    public function streamChat(int $patientId, int $physicianId, array $messages): void
     {
         $startMs = (int) (microtime(true) * 1000);
-        $apiKey = $_ENV['ANTHROPIC_API_KEY'] ?? getenv('ANTHROPIC_API_KEY') ?: '';
+        $apiKey  = $_ENV['ANTHROPIC_API_KEY'] ?? getenv('ANTHROPIC_API_KEY') ?: '';
 
         if (empty($apiKey)) {
             $this->emitEvent('error', ['message' => 'ANTHROPIC_API_KEY not configured on this server.']);
             return;
         }
 
-        if (!$forceRefresh) {
-            $cached = $this->fetchCache($patientId, $physicianId);
-            if ($cached !== null) {
-                $cachedSources = json_decode($cached['citation_registry'] ?? '{}', true) ?? [];
-                $this->emitEvent('sources', ['sources' => $cachedSources]);
-                $this->emitEvent('cached', ['text' => $cached['brief_text']]);
-                $this->emitEvent('done', ['cached' => true]);
-                return;
-            }
+        // Retrieve or gather patient context (cached per patient+physician in session)
+        $sessionKey = "copilot_ctx_{$patientId}_{$physicianId}";
+        $context    = $_SESSION[$sessionKey] ?? null;
+        $toolsCalled = [];
+
+        if ($context === null) {
+            $toolStart   = (int) (microtime(true) * 1000);
+            $patientData = $this->briefTool->gather($patientId, $physicianId);
+            $toolDuration = (int) (microtime(true) * 1000) - $toolStart;
+
+            ['message' => $contextMessage, 'sources' => $sources] = $this->buildUserMessage($patientData);
+
+            $context = [
+                'patient_data'    => $patientData,
+                'context_message' => $contextMessage,
+                'sources'         => $sources,
+            ];
+            $_SESSION[$sessionKey] = $context;
+
+            $toolsCalled[] = [
+                'name'        => 'PatientBriefTool',
+                'duration_ms' => $toolDuration,
+                'success'     => !empty($patientData['demographics']),
+                'result_size' => strlen(json_encode($patientData) ?: ''),
+            ];
         }
 
-        $toolStart   = (int) (microtime(true) * 1000);
-        $patientData = $this->briefTool->gather($patientId, $physicianId);
-        $toolDuration = (int) (microtime(true) * 1000) - $toolStart;
+        // Emit source registry before streaming so citations render immediately
+        $this->emitEvent('sources', ['sources' => $context['sources']]);
 
-        $toolsCalled = [[
-            'name'        => 'PatientBriefTool',
-            'duration_ms' => $toolDuration,
-            'success'     => !empty($patientData['demographics']),
-            'result_size' => strlen(json_encode($patientData) ?: ''),
-        ]];
+        // Build Anthropic messages: inject patient context into the first user message
+        $isBrief      = count($messages) === 1;
+        $systemPrompt = $isBrief ? self::BRIEF_SYSTEM_PROMPT : self::FOLLOWUP_SYSTEM_PROMPT;
+        $apiMessages  = [];
 
-        ['message' => $userMessage, 'sources' => $sources] = $this->buildUserMessage($patientData);
+        foreach ($messages as $i => $msg) {
+            $content = $msg['content'];
+            if ($i === 0 && $msg['role'] === 'user') {
+                $content = $context['context_message'] . "\n\n" . $content;
+            }
+            $apiMessages[] = ['role' => $msg['role'], 'content' => $content];
+        }
 
-        // Emit sources before streaming so citations are live the moment text arrives
-        $this->emitEvent('sources', ['sources' => $sources]);
-
-        $fullText    = '';
-        $inputTokens = 0;
+        $fullText     = '';
+        $inputTokens  = 0;
         $outputTokens = 0;
 
         $this->streamAnthropicApi(
-            apiKey: $apiKey,
-            userMessage: $userMessage,
-            onDelta: function (string $text) use (&$fullText): void {
+            apiKey:       $apiKey,
+            systemPrompt: $systemPrompt,
+            messages:     $apiMessages,
+            onDelta:      function (string $text) use (&$fullText): void {
                 $fullText .= $text;
                 $this->emitEvent('delta', ['text' => $text]);
             },
@@ -93,16 +152,31 @@ PROMPT;
             },
         );
 
-        $totalMs = (int) (microtime(true) * 1000) - $startMs;
-
-        if (!empty($fullText)) {
-            $this->saveCache($patientId, $physicianId, $patientData, $fullText, $sources);
+        // Parse suggestions block from end of response
+        $suggestions = [];
+        if (preg_match('/\nSUGGESTIONS:\s*(\[.*?\])\s*$/s', $fullText, $m)) {
+            $decoded = json_decode($m[1], true);
+            if (is_array($decoded)) {
+                $suggestions = array_values(array_filter($decoded, 'is_string'));
+            }
         }
+
+        if (!empty($suggestions)) {
+            $this->emitEvent('suggestions', ['suggestions' => $suggestions]);
+        }
+
+        // Cache the brief on first turn
+        if ($isBrief && !empty($fullText)) {
+            $cleanText = preg_replace('/\nSUGGESTIONS:\s*\[.*?\]\s*$/s', '', $fullText) ?? $fullText;
+            $this->saveCache($patientId, $physicianId, $context['patient_data'], $cleanText, $context['sources']);
+        }
+
+        $totalMs = (int) (microtime(true) * 1000) - $startMs;
 
         $this->auditLogger->log(
             physicianId:  $physicianId,
             patientId:    $patientId,
-            queryText:    'Pre-encounter brief (auto)',
+            queryText:    $messages[count($messages) - 1]['content'] ?? '',
             toolsCalled:  $toolsCalled,
             model:        self::MODEL,
             inputTokens:  $inputTokens,
@@ -120,13 +194,37 @@ PROMPT;
     }
 
     /**
-     * Builds the LLM user message and a structured source registry.
-     *
-     * Each source entry has:
-     *   type     — appointment | encounter | medication | lab
-     *   label    — short human-readable name shown in the drawer header
-     *   fields   — list of {key, value} pairs from the raw EHR record
-     *   scroll_to — CSS selector of the on-page card to scroll to and expand
+     * Legacy single-shot brief — used for cache hits without conversation history.
+     */
+    public function streamBrief(int $patientId, int $physicianId, bool $forceRefresh = false): void
+    {
+        $startMs = (int) (microtime(true) * 1000);
+        $apiKey  = $_ENV['ANTHROPIC_API_KEY'] ?? getenv('ANTHROPIC_API_KEY') ?: '';
+
+        if (empty($apiKey)) {
+            $this->emitEvent('error', ['message' => 'ANTHROPIC_API_KEY not configured on this server.']);
+            return;
+        }
+
+        if (!$forceRefresh) {
+            $cached = $this->fetchCache($patientId, $physicianId);
+            if ($cached !== null) {
+                $cachedSources = json_decode($cached['citation_registry'] ?? '{}', true) ?? [];
+                $this->emitEvent('sources', ['sources' => $cachedSources]);
+                $this->emitEvent('cached', ['text' => $cached['brief_text']]);
+                $this->emitEvent('done', ['cached' => true]);
+                return;
+            }
+        }
+
+        // Route through streamChat with a single message
+        $this->streamChat($patientId, $physicianId, [
+            ['role' => 'user', 'content' => 'Brief me on this patient.'],
+        ]);
+    }
+
+    /**
+     * Builds the LLM user message and a structured source registry from gathered patient data.
      *
      * @param array<string,mixed> $patientData
      * @return array{message: string, sources: array<string, array{type: string, label: string, fields: list<array{key: string, value: string}>, scroll_to: string}>}
@@ -136,8 +234,6 @@ PROMPT;
         $sources = [];
         $idx     = 1;
         $lines   = [];
-
-        $pid = (int) ($patientData['demographics']['pid'] ?? 0);
 
         // ── Appointment ──────────────────────────────────────────────────────
         $appt   = $patientData['today_appointment'];
@@ -228,7 +324,6 @@ PROMPT;
                 'scroll_to' => '#labdata_ps_expand',
             ];
             $lines[] = "[{$idx}] Labs: none on file";
-            $idx++;
         } else {
             foreach ($labs as $lab) {
                 $result = trim(($lab['value'] ?? '') . ' ' . ($lab['units'] ?? ''));
@@ -259,7 +354,7 @@ PROMPT;
         $srcBlock = implode("\n", $lines);
 
         $message = <<<TEXT
-Brief this patient. Cite source numbers inline (e.g. [1]) next to each fact.
+Brief this patient. Cite source numbers inline using [[N]]phrase[[/N]] markers.
 
 PATIENT: {$name}, {$age}y {$sex}
 
@@ -271,8 +366,6 @@ TEXT;
     }
 
     /**
-     * Removes fields with empty values so the drawer only shows real data.
-     *
      * @param list<array{key: string, value: string}> $fields
      * @return list<array{key: string, value: string}>
      */
@@ -283,9 +376,13 @@ TEXT;
         );
     }
 
+    /**
+     * @param list<array{role: string, content: string}> $messages
+     */
     private function streamAnthropicApi(
         string $apiKey,
-        string $userMessage,
+        string $systemPrompt,
+        array $messages,
         \Closure $onDelta,
         \Closure $onUsage,
     ): void {
@@ -293,8 +390,8 @@ TEXT;
             'model'      => self::MODEL,
             'max_tokens' => self::MAX_TOKENS,
             'stream'     => true,
-            'system'     => self::SYSTEM_PROMPT,
-            'messages'   => [['role' => 'user', 'content' => $userMessage]],
+            'system'     => $systemPrompt,
+            'messages'   => $messages,
         ]);
 
         $buffer = '';

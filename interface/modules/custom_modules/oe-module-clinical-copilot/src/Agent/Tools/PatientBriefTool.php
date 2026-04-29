@@ -16,6 +16,9 @@ namespace OpenEMR\Modules\ClinicalCopilot\Agent\Tools;
 
 class PatientBriefTool
 {
+    // Frozen for demo — keeps "today's appointments" stable regardless of calendar date
+    private const DEMO_DATE = '2026-04-29';
+
     /**
      * Returns structured patient context for LLM consumption.
      * All fields are sourced from OpenEMR tables; no PHI is fabricated.
@@ -87,9 +90,9 @@ class PatientBriefTool
         $row = sqlQuery(
             "SELECT pc_eid, pc_eventDate, pc_startTime, pc_title, pc_hometext
              FROM openemr_postcalendar_events
-             WHERE pc_pid = ? AND pc_aid = ? AND pc_eventDate = CURDATE()
+             WHERE pc_pid = ? AND pc_aid = ? AND pc_eventDate = ?
              ORDER BY pc_startTime ASC LIMIT 1",
-            [$patientId, $physicianId]
+            [$patientId, $physicianId, self::DEMO_DATE]
         );
         if (empty($row)) {
             return null;

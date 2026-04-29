@@ -4,11 +4,11 @@ import { CopilotPanel } from './CopilotPanel';
 
 declare global {
   interface Window {
-    copilotInit: (pid: number, apiUrl: string, csrfToken: string) => void;
+    copilotInit: (pid: number, apiUrl: string, csrfToken: string, physicianId: number) => void;
   }
 }
 
-window.copilotInit = (pid: number, apiUrl: string, csrfToken: string) => {
+window.copilotInit = (pid: number, apiUrl: string, csrfToken: string, physicianId: number) => {
 const widget = document.getElementById('copilot-widget');
   if (!widget) return;
 
@@ -20,6 +20,6 @@ const widget = document.getElementById('copilot-widget');
 
   widget.style.display = '';
   createRoot(widget).render(
-    <CopilotPanel pid={pid} apiUrl={apiUrl} csrfToken={csrfToken} />
+    <CopilotPanel pid={pid} apiUrl={apiUrl} csrfToken={csrfToken} physicianId={physicianId} />
   );
 };

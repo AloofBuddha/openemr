@@ -455,7 +455,37 @@ def run_offline():
         print(f"  {key}: {sum(scores)}/{len(scores)} ({pct:.0f}%)")
 
 
-def run_with_langsmith():
+DATASET_NAME = "uc1-pre-encounter-brief"
+
+
+def _ensure_dataset(client: "Client", reset: bool = False) -> str:  # type: ignore[name-defined]
+    """Create the LangSmith dataset if it doesn't exist; return its name.
+
+    Pass reset=True to delete and recreate (picks up new/changed test cases).
+    """
+    if reset and client.has_dataset(dataset_name=DATASET_NAME):
+        client.delete_dataset(dataset_name=DATASET_NAME)
+        print(f"Deleted existing dataset '{DATASET_NAME}'")
+
+    if not client.has_dataset(dataset_name=DATASET_NAME):
+        dataset = client.create_dataset(
+            DATASET_NAME,
+            description="UC-1 Pre-Encounter Brief — 12 cases covering happy-path, edge cases, and adversarial inputs",
+        )
+        client.create_examples(
+            inputs=[c["inputs"] for c in DATASET],
+            metadata=[{"case_id": c["id"], "description": c["description"]} for c in DATASET],
+            dataset_id=dataset.id,
+        )
+        print(f"Created dataset '{DATASET_NAME}' with {len(DATASET)} examples")
+    else:
+        count = sum(1 for _ in client.list_examples(dataset_name=DATASET_NAME))
+        print(f"Using existing dataset '{DATASET_NAME}' ({count} examples). Pass --reset-dataset to recreate.")
+
+    return DATASET_NAME
+
+
+def run_with_langsmith(reset_dataset: bool = False) -> None:
     """Run evals with full LangSmith tracing."""
     try:
         from langsmith import Client
@@ -466,25 +496,21 @@ def run_with_langsmith():
         return
 
     client = Client()
+    dataset_name = _ensure_dataset(client, reset=reset_dataset)
 
-    # Wrap target to be traceable
-    try:
-        from langsmith import traceable
-        traced_run_brief = traceable(run_brief, name="copilot_uc1_brief")
-    except Exception:
-        traced_run_brief = run_brief
-
-    print(f"\nRunning {len(DATASET)} eval cases (LangSmith mode)\n{'='*60}")
+    print(f"\nRunning {len(DATASET)} eval cases against '{dataset_name}' (LangSmith mode)\n{'='*60}")
 
     results = evaluate(
-        lambda inputs: traced_run_brief(inputs),
-        data=[{"inputs": c["inputs"]} for c in DATASET],
+        run_brief,
+        data=dataset_name,
         evaluators=EVALUATORS,
         experiment_prefix="uc1-brief",
         metadata={"model": "claude-haiku-4-5-20251001", "dataset_version": "1.0"},
+        max_concurrency=1,  # sequential to avoid DB connection exhaustion
     )
-    print(f"\nResults stored in LangSmith project: {os.getenv('LANGCHAIN_PROJECT', 'copilot-evals')}")
-    print(f"View at: https://smith.langchain.com")
+    project = os.getenv("LANGCHAIN_PROJECT", "copilot-evals")
+    print(f"\nResults stored in LangSmith project: {project}")
+    print("View at: https://smith.langchain.com")
     return results
 
 
@@ -492,7 +518,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--offline", action="store_true",
                         help="Print results to stdout without LangSmith")
-    parser.add_argument("--case", help="Run a single case by ID")
+    parser.add_argument("--case", help="Run a single case by ID (offline only)")
+    parser.add_argument("--reset-dataset", action="store_true",
+                        help="Delete and recreate the LangSmith dataset (picks up new test cases)")
     args = parser.parse_args()
 
     if args.case:
@@ -503,6 +531,8 @@ if __name__ == "__main__":
         DATASET[:] = cases
 
     if args.offline or not os.getenv("LANGCHAIN_API_KEY"):
+        if not args.offline:
+            print("LANGCHAIN_API_KEY not set — running offline. Add it to .env to use LangSmith.")
         run_offline()
     else:
-        run_with_langsmith()
+        run_with_langsmith(reset_dataset=args.reset_dataset)

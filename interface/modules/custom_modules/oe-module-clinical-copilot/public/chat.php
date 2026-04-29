@@ -2,8 +2,12 @@
 
 /**
  * Clinical Co-Pilot SSE streaming endpoint.
- * Accepts POST: pid (int), refresh (bool optional)
- * Returns: text/event-stream SSE
+ *
+ * POST params:
+ *   pid              (int)    — patient ID
+ *   csrf_token_form  (string) — CSRF token
+ *   messages         (string) — JSON array of {role, content} objects (optional; omit for legacy single-shot brief)
+ *   refresh          (bool)   — force cache bypass (only used when messages is absent)
  *
  * @package   OpenEMR
  * @link      https://www.open-emr.org
@@ -23,7 +27,7 @@ use OpenEMR\Modules\ClinicalCopilot\Authorization\PatientAccessGuard;
 use OpenEMR\Modules\ClinicalCopilot\Authorization\UnauthorizedPatientAccessException;
 use OpenEMR\Modules\ClinicalCopilot\Observability\AgentAuditLogger;
 
-// Register our module namespace (not loaded via bootstrap in a direct PHP hit)
+// Register module namespace
 spl_autoload_register(function (string $class): void {
     $prefix = 'OpenEMR\\Modules\\ClinicalCopilot\\';
     if (!str_starts_with($class, $prefix)) {
@@ -36,8 +40,6 @@ spl_autoload_register(function (string $class): void {
     }
 });
 
-// Session auth: globals.php already redirects unauthenticated page requests, but
-// for XHR requests it may not. Use the Symfony session wrapper (same as the rest of OpenEMR).
 $session     = SessionWrapperFactory::getInstance()->getActiveSession();
 $physicianId = (int) $session->get('authUserID');
 if ($physicianId <= 0) {
@@ -45,19 +47,35 @@ if ($physicianId <= 0) {
     exit('Unauthorized');
 }
 
-// CSRF check
 CsrfUtils::checkCsrfInput(INPUT_POST, dieOnFail: true);
 
-// Validate input
 $pid = filter_input(INPUT_POST, 'pid', FILTER_VALIDATE_INT);
 if ($pid === false || $pid === null || $pid <= 0) {
     http_response_code(400);
     exit('Invalid pid');
 }
 
-$forceRefresh = filter_input(INPUT_POST, 'refresh', FILTER_VALIDATE_BOOLEAN) === true;
+// Parse optional messages array
+$messagesRaw = $_POST['messages'] ?? null;
+$messages    = null;
+if ($messagesRaw !== null) {
+    $decoded = json_decode($messagesRaw, true);
+    if (is_array($decoded) && !empty($decoded)) {
+        // Validate each message has role + content strings
+        $valid = true;
+        foreach ($decoded as $msg) {
+            if (!isset($msg['role'], $msg['content'])
+                || !in_array($msg['role'], ['user', 'assistant'], true)
+                || !is_string($msg['content'])
+            ) {
+                $valid = false;
+                break;
+            }
+        }
+        $messages = $valid ? $decoded : null;
+    }
+}
 
-// Authorization
 try {
     (new PatientAccessGuard())->assertAccess($physicianId, $pid);
 } catch (UnauthorizedPatientAccessException $e) {
@@ -65,13 +83,11 @@ try {
     exit('Forbidden');
 }
 
-// SSE headers
 header('Content-Type: text/event-stream');
 header('Cache-Control: no-cache');
 header('X-Accel-Buffering: no');
 header('Connection: keep-alive');
 
-// Kill output buffering so events reach the browser immediately
 while (ob_get_level() > 0) {
     ob_end_clean();
 }
@@ -81,4 +97,9 @@ $orchestrator = new Orchestrator(
     new AgentAuditLogger(),
 );
 
-$orchestrator->streamBrief($pid, $physicianId, $forceRefresh);
+if ($messages !== null) {
+    $orchestrator->streamChat($pid, $physicianId, $messages);
+} else {
+    $forceRefresh = filter_input(INPUT_POST, 'refresh', FILTER_VALIDATE_BOOLEAN) === true;
+    $orchestrator->streamBrief($pid, $physicianId, $forceRefresh);
+}
