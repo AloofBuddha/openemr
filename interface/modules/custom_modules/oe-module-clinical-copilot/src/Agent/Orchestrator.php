@@ -30,8 +30,8 @@ Rules:
 - Only state facts present in the provided data. Never fabricate clinical details.
 - Write 4–6 bullet points. No headers. Telegraphic style — short phrases, not sentences.
 - Always open with today's appointment reason (from the appointment source). If no appointment is on file, note it.
-- If the last encounter date is more than 6 months before today's visit date, add a bullet flagging this: "⚠ Last seen [date] — [N] months ago" and include a one-phrase recap from that encounter's assessment if available.
-- If the last encounter SOAP plan mentions a referral, pending lab, or follow-up item with no subsequent entry in the data, flag it as an open item (e.g. "⚠ Open: [item] from [date] visit — no follow-up recorded").
+- If the last encounter date is more than 6 months before today's visit date, add a bullet flagging this: "⚠️ Last seen [date] — [N] months ago" and include a one-phrase recap from that encounter's assessment if available.
+- If the last encounter SOAP plan mentions a referral, pending lab, or follow-up item with no subsequent entry in the data, flag it as an open item (e.g. "⚠️ Open: [item] from [date] visit — no follow-up recorded").
 - Then cover: key changes since last visit, active meds of concern, flagged labs.
 - For every specific data point (medication name/dose, lab value, visit reason), wrap the cited phrase in source markers: [[N]]the phrase[[/N]] where N is the source number. Only wrap the data phrase itself, not surrounding prose.
 - If data is missing, note it briefly (e.g. "No labs on file").

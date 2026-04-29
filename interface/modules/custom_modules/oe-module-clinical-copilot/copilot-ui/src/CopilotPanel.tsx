@@ -214,9 +214,27 @@ export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId }: Props) {
 
   const [collapsed, setCollapsed]   = useState(false);
   const [inputText, setInputText]   = useState('');
+  const [drawerWidth, setDrawerWidth] = useState(260);
   const inputRef             = useRef<HTMLInputElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const dragStartX           = useRef(0);
+  const dragStartWidth       = useRef(260);
   const isBusy   = status === 'loading' || status === 'streaming';
+
+  // Pointer capture: events stay on the divider even when mouse leaves it,
+  // and can't be intercepted by OpenEMR's jQuery/Bootstrap handlers.
+  const onDividerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragStartX.current     = e.clientX;
+    dragStartWidth.current = drawerWidth;
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+  const onDividerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!(e.currentTarget as HTMLDivElement).hasPointerCapture(e.pointerId)) return;
+    const delta    = dragStartX.current - e.clientX; // left = wider drawer
+    const newWidth = Math.max(180, Math.min(460, dragStartWidth.current + delta));
+    setDrawerWidth(newWidth);
+  };
 
   // Dual scroll: inner container tracks latest content; page keeps input visible
   useEffect(() => {
@@ -287,9 +305,20 @@ export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId }: Props) {
             })}
           </div>
 
-          {/* ── Source drawer ── */}
+          {/* ── Drag handle + source drawer ── */}
           {activeSource && (
-            <SourceDrawer source={activeSource} onClose={() => setActiveSource(null)} />
+            <>
+              <div
+                className="copilot-divider"
+                onPointerDown={onDividerPointerDown}
+                onPointerMove={onDividerPointerMove}
+              />
+              <SourceDrawer
+                source={activeSource}
+                onClose={() => setActiveSource(null)}
+                width={drawerWidth}
+              />
+            </>
           )}
         </div>
 
@@ -398,7 +427,7 @@ const TYPE_LABELS: Record<string, string> = {
   lab:         'Lab Result',
 };
 
-function SourceDrawer({ source, onClose }: { source: CiteSource; onClose: () => void }) {
+function SourceDrawer({ source, onClose, width }: { source: CiteSource; onClose: () => void; width: number }) {
   const typeLabel = TYPE_LABELS[source.type] ?? source.type;
 
   const handleScrollTo = () => {
@@ -417,7 +446,7 @@ function SourceDrawer({ source, onClose }: { source: CiteSource; onClose: () => 
   };
 
   return (
-    <div className="copilot-drawer">
+    <div className="copilot-drawer" style={{ width }}>
       <div className="copilot-drawer-header">
         <div>
           <span className={`copilot-drawer-type copilot-drawer-type-${source.type}`}>{typeLabel}</span>
