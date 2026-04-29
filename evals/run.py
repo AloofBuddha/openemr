@@ -180,8 +180,45 @@ def eval_flags_abnormal_labs(outputs: dict, reference_outputs: dict) -> dict:
             "comment": f"missed: {missed}" if missed else "all abnormal labs mentioned"}
 
 
+def _is_brand_generic_alias(suspicious: list[str], known_drugs: set[str]) -> tuple[bool, str]:
+    """
+    Second-pass LLM check: ask Haiku whether each suspicious drug name is a brand/generic
+    equivalent of a known drug. Returns (all_equivalent, explanation).
+    Falls back to (False, reason) on any error so the parent evaluator degrades gracefully.
+    """
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    try:
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "You are a pharmaceutical reference. Respond with JSON only — no prose.\n\n"
+                    f"Known drugs in the patient record: {sorted(known_drugs)}\n"
+                    f"Drug names found in the brief that are NOT in the record: {suspicious}\n\n"
+                    "For each name in the 'not in record' list, determine whether it is a brand name "
+                    "or generic name whose counterpart appears in the known list. "
+                    "Set all_equivalent to true only if EVERY suspicious name maps to a known drug. "
+                    'Respond: {"all_equivalent": true|false, "explanation": "one sentence"}'
+                ),
+            }],
+        )
+        raw = message.content[0].text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+        result = json.loads(raw)
+        return bool(result.get("all_equivalent")), result.get("explanation", "")
+    except Exception as exc:
+        return False, f"alias check error: {exc}"
+
+
 def eval_no_medication_fabrication(outputs: dict, reference_outputs: dict) -> dict:
-    """Drug names mentioned in the brief (in dosage context) must be from the patient's med list."""
+    """Drug names mentioned in the brief (in dosage context) must be from the patient's med list.
+    When a name is not in the list, a second LLM call checks brand/generic equivalence before
+    declaring fabrication."""
     meds = outputs["patient_data"].get("active_medications") or []
     if not meds:
         return {"key": "no_medication_fabrication", "score": 1, "comment": "no meds in record"}
@@ -190,9 +227,17 @@ def eval_no_medication_fabrication(outputs: dict, reference_outputs: dict) -> di
     dosage_pattern = re.findall(r"\b([A-Z][a-zA-Z]{3,})\s+\d+\s*(?:mg|mcg|mEq|unit)", outputs["brief"])
     suspicious = [w for w in dosage_pattern if w.lower() not in known_drugs]
 
-    score = 1 if not suspicious else 0
-    return {"key": "no_medication_fabrication", "score": score,
-            "comment": f"possibly fabricated: {suspicious}" if suspicious else "ok"}
+    if not suspicious:
+        return {"key": "no_medication_fabrication", "score": 1, "comment": "ok"}
+
+    # Second-pass: brand/generic alias check via LLM
+    all_equivalent, explanation = _is_brand_generic_alias(suspicious, known_drugs)
+    if all_equivalent:
+        return {"key": "no_medication_fabrication", "score": 1,
+                "comment": f"brand/generic alias confirmed — {explanation}"}
+
+    return {"key": "no_medication_fabrication", "score": 0,
+            "comment": f"possible fabrication (not a known alias): {suspicious} — {explanation}"}
 
 
 def eval_handles_no_data_gracefully(outputs: dict, reference_outputs: dict) -> dict:
