@@ -11,6 +11,9 @@ from typing import Any
 import pymysql
 import pymysql.cursors
 
+# Frozen demo date — mirrors PatientBriefTool::DEMO_DATE in PHP
+DEMO_DATE = "2026-04-29"
+
 
 def _age_from_dob(dob: str) -> str:
     if not dob:
@@ -76,9 +79,9 @@ def _fetch_today_appointment(conn: pymysql.Connection, patient_id: int, physicia
         cur.execute(
             """SELECT pc_eid, pc_eventDate, pc_startTime, pc_title, pc_hometext
                FROM openemr_postcalendar_events
-               WHERE pc_pid = %s AND pc_aid = %s AND pc_eventDate = CURDATE()
+               WHERE pc_pid = %s AND pc_aid = %s AND pc_eventDate = %s
                ORDER BY pc_startTime ASC LIMIT 1""",
-            (patient_id, physician_id),
+            (patient_id, physician_id, DEMO_DATE),
         )
         row = cur.fetchone()
     if not row:
