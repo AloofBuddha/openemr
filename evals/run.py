@@ -9,6 +9,7 @@ Run:
 LangSmith traces every run and stores results under LANGCHAIN_PROJECT.
 Pass --offline to skip LangSmith (prints results to stdout instead).
 Pass --followup to also run multi-turn adversarial cases.
+Pass --report eval_results.md to write a readable markdown report.
 """
 
 import argparse
@@ -702,23 +703,149 @@ FOLLOWUP_DATASET: list[dict] = [
 
 
 # ---------------------------------------------------------------------------
+# Markdown report
+# ---------------------------------------------------------------------------
+
+def write_report(
+    brief_results: list[dict],
+    brief_scores: dict[str, list[int]],
+    followup_results: list[dict],
+    followup_scores: dict[str, list[int]],
+    path: str = "eval_results.md",
+) -> None:
+    """Write a human-readable eval report to a markdown file."""
+    from datetime import datetime as dt
+
+    lines: list[str] = []
+    lines += [
+        "# Clinical Co-Pilot — Eval Results",
+        f"*{dt.now().strftime('%Y-%m-%d %H:%M')}  ·  model: claude-haiku-4-5-20251001*",
+        "",
+    ]
+
+    # ── Summary tables ───────────────────────────────────────────────────────
+    lines += ["## Summary", ""]
+
+    if brief_scores:
+        lines += ["### Brief evals", "| Check | Pass | Total | % |", "|-------|------|-------|---|"]
+        for key, scores in brief_scores.items():
+            pct = int(sum(scores) / len(scores) * 100)
+            icon = "✅" if pct == 100 else ("⚠️" if pct >= 70 else "❌")
+            lines.append(f"| {icon} `{key}` | {sum(scores)} | {len(scores)} | {pct}% |")
+        lines.append("")
+
+    if followup_scores:
+        lines += ["### Multi-turn adversarial evals", "| Check | Pass | Total | % |", "|-------|------|-------|---|"]
+        for key, scores in followup_scores.items():
+            pct = int(sum(scores) / len(scores) * 100)
+            icon = "✅" if pct == 100 else ("⚠️" if pct >= 70 else "❌")
+            lines.append(f"| {icon} `{key}` | {sum(scores)} | {len(scores)} | {pct}% |")
+        lines.append("")
+
+    # ── Per-case details ──────────────────────────────────────────────────────
+    if brief_results:
+        lines += ["---", "## Brief Cases", ""]
+        for r in brief_results:
+            case_id    = r["case_id"]
+            desc       = r["description"]
+            brief_text = r.get("brief", "")
+            brief_text = re.sub(r"\[\[/?\d+\]\]", "", brief_text)
+            brief_text = re.sub(r"\nSUGGESTIONS:.*$", "", brief_text, flags=re.DOTALL).strip()
+            checks     = r.get("checks", [])
+            error      = r.get("error")
+
+            lines.append(f"### `{case_id}`")
+            lines.append(f"**What this tests:** {desc}")
+            lines.append("")
+
+            if error:
+                lines.append(f"> ❌ **ERROR:** `{error}`")
+            else:
+                # Brief output (indented block)
+                lines.append("<details><summary>Model output</summary>")
+                lines.append("")
+                lines.append("```")
+                lines.append(brief_text[:600] + ("..." if len(brief_text) > 600 else ""))
+                lines.append("```")
+                lines.append("</details>")
+                lines.append("")
+
+                # Checks
+                lines.append("| Check | Result | Detail |")
+                lines.append("|-------|--------|--------|")
+                for c in checks:
+                    icon = "✅" if c["score"] == 1 else "❌"
+                    lines.append(f"| `{c['key']}` | {icon} | {c['comment']} |")
+
+            lines.append("")
+
+    if followup_results:
+        lines += ["---", "## Multi-Turn Adversarial Cases", ""]
+        for r in followup_results:
+            case_id  = r["case_id"]
+            desc     = r["description"]
+            expected = r.get("expected_behavior", "")
+            question = r.get("followup_question", "")
+            response = r.get("response", "")
+            response = re.sub(r"\[\[/?\d+\]\]", "", response)
+            response = re.sub(r"\nSUGGESTIONS:.*$", "", response, flags=re.DOTALL).strip()
+            checks   = r.get("checks", [])
+            error    = r.get("error")
+
+            lines.append(f"### `{case_id}`")
+            lines.append(f"**What this tests:** {desc}")
+            lines.append(f"**Expected behavior:** {expected}")
+            lines.append(f"**Follow-up question asked:** *\"{question}\"*")
+            lines.append("")
+
+            if error:
+                lines.append(f"> ❌ **ERROR:** `{error}`")
+            else:
+                lines.append("<details><summary>Agent response</summary>")
+                lines.append("")
+                lines.append("```")
+                lines.append(response[:400] + ("..." if len(response) > 400 else ""))
+                lines.append("```")
+                lines.append("</details>")
+                lines.append("")
+
+                lines.append("| Check | Result | Detail |")
+                lines.append("|-------|--------|--------|")
+                for c in checks:
+                    icon = "✅" if c["score"] == 1 else "❌"
+                    lines.append(f"| `{c['key']}` | {icon} | {c['comment']} |")
+
+            lines.append("")
+
+    with open(path, "w") as f:
+        f.write("\n".join(lines))
+    print(f"\nReport written to: {path}")
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
-def run_offline(run_followup_cases: bool = False):
+def run_offline(run_followup_cases: bool = False, report_path: str | None = None):
     """Run evals without LangSmith — print results to stdout."""
     print(f"\nRunning {len(DATASET)} brief eval cases (offline mode)\n{'='*60}")
     total_scores: dict[str, list[int]] = {}
+    brief_results: list[dict] = []
 
     for case in DATASET:
         print(f"\n[{case['id']}]")
         print(f"  {case['description']}")
+        case_record: dict = {
+            "case_id": case["id"],
+            "description": case["description"],
+        }
         try:
             outputs = run_brief(case["inputs"])
             clean_brief = re.sub(r"\[\[/?\d+\]\]", "", outputs["brief"])
             clean_brief = re.sub(r"\nSUGGESTIONS:.*$", "", clean_brief, flags=re.DOTALL)
             print(f"  Brief: {clean_brief[:220]}{'...' if len(clean_brief) > 220 else ''}")
 
+            checks: list[dict] = []
             for evaluator in EVALUATORS:
                 result = evaluator(outputs, case.get("outputs", {}))
                 key = result["key"]
@@ -727,9 +854,16 @@ def run_offline(run_followup_cases: bool = False):
                 symbol = "✓" if score == 1 else "✗"
                 print(f"  {symbol} {key}: {comment}")
                 total_scores.setdefault(key, []).append(score)
+                checks.append(result)
+
+            case_record["brief"] = outputs["brief"]
+            case_record["checks"] = checks
 
         except Exception as e:
             print(f"  ERROR: {e}")
+            case_record["error"] = str(e)
+
+        brief_results.append(case_record)
 
     print(f"\n{'='*60}")
     print("Brief eval summary:")
@@ -737,20 +871,29 @@ def run_offline(run_followup_cases: bool = False):
         pct = sum(scores) / len(scores) * 100
         print(f"  {key}: {sum(scores)}/{len(scores)} ({pct:.0f}%)")
 
+    followup_scores: dict[str, list[int]] = {}
+    followup_results: list[dict] = []
+
     if run_followup_cases:
         print(f"\n\nRunning {len(FOLLOWUP_DATASET)} multi-turn adversarial cases\n{'='*60}")
-        followup_scores: dict[str, list[int]] = {}
 
         for case in FOLLOWUP_DATASET:
             print(f"\n[{case['id']}]")
             print(f"  {case['description']}")
             print(f"  Expected: {case.get('expected_behavior', '')}")
+            case_record = {
+                "case_id": case["id"],
+                "description": case["description"],
+                "expected_behavior": case.get("expected_behavior", ""),
+                "followup_question": case["inputs"].get("followup_question", ""),
+            }
             try:
                 outputs = run_followup(case["inputs"])
                 clean_response = re.sub(r"\[\[/?\d+\]\]", "", outputs["response"])
                 clean_response = re.sub(r"\nSUGGESTIONS:.*$", "", clean_response, flags=re.DOTALL)
                 print(f"  Response: {clean_response[:220]}{'...' if len(clean_response) > 220 else ''}")
 
+                checks = []
                 for evaluator in FOLLOWUP_EVALUATORS:
                     result = evaluator(outputs, case.get("outputs", {}))
                     key = result["key"]
@@ -759,15 +902,25 @@ def run_offline(run_followup_cases: bool = False):
                     symbol = "✓" if score == 1 else "✗"
                     print(f"  {symbol} {key}: {comment}")
                     followup_scores.setdefault(key, []).append(score)
+                    checks.append(result)
+
+                case_record["response"] = outputs["response"]
+                case_record["checks"] = checks
 
             except Exception as e:
                 print(f"  ERROR: {e}")
+                case_record["error"] = str(e)
+
+            followup_results.append(case_record)
 
         print(f"\n{'='*60}")
         print("Follow-up eval summary:")
         for key, scores in followup_scores.items():
             pct = sum(scores) / len(scores) * 100
             print(f"  {key}: {sum(scores)}/{len(scores)} ({pct:.0f}%)")
+
+    if report_path:
+        write_report(brief_results, total_scores, followup_results, followup_scores, path=report_path)
 
 
 DATASET_NAME = "uc1-pre-encounter-brief"
@@ -837,6 +990,8 @@ if __name__ == "__main__":
     parser.add_argument("--case", help="Run a single brief case by ID (offline only)")
     parser.add_argument("--reset-dataset", action="store_true",
                         help="Delete and recreate the LangSmith dataset")
+    parser.add_argument("--report", metavar="FILE", default=None,
+                        help="Write a markdown report to FILE (e.g. eval_results.md)")
     args = parser.parse_args()
 
     if args.case:
@@ -849,6 +1004,6 @@ if __name__ == "__main__":
     if args.offline or not os.getenv("LANGCHAIN_API_KEY"):
         if not args.offline:
             print("LANGCHAIN_API_KEY not set — running offline. Add it to .env to use LangSmith.")
-        run_offline(run_followup_cases=args.followup)
+        run_offline(run_followup_cases=args.followup, report_path=args.report)
     else:
         run_with_langsmith(reset_dataset=args.reset_dataset)

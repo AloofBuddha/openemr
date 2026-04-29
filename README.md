@@ -136,6 +136,8 @@ interface/modules/custom_modules/oe-module-clinical-copilot/
 USERS.md             Target user, workflow, and use cases
 AUDIT.md             Security, performance, and HIPAA audit
 ARCHITECTURE.md      AI integration plan
+COST_ANALYSIS.md     AI cost analysis — actual dev spend + projections at 100/1K/10K/100K users
+evals/               Eval harness — 15 brief cases + 3 adversarial multi-turn cases
 ```
 
 ---
@@ -146,3 +148,5 @@ ARCHITECTURE.md      AI integration plan
 - [`USERS.md`](USERS.md) — use cases with justification for agent vs. dashboard
 - [`AUDIT.md`](AUDIT.md) — audit findings that inform architecture decisions
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — AI integration plan
+- [`COST_ANALYSIS.md`](COST_ANALYSIS.md) — AI cost analysis with multi-turn session costs and scale projections
+- [`evals/eval_results.md`](evals/eval_results.md) — latest eval run results (15 brief + 3 adversarial cases)
