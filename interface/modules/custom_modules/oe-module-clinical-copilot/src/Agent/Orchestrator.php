@@ -21,6 +21,7 @@ class Orchestrator
 {
     private const MODEL      = 'claude-sonnet-4-6';
     private const MAX_TOKENS = 1024;
+    private const DEMO_DATE  = '2026-04-28';
 
     // First-turn: structured brief with citation markers + suggestion chips
     private const BRIEF_SYSTEM_PROMPT = <<<'PROMPT'
@@ -478,9 +479,9 @@ TEXT;
         $row = sqlQuery(
             "SELECT brief_text, citation_registry, data_snapshot_hash, generated_at
              FROM copilot_brief_cache
-             WHERE patient_id = ? AND physician_id = ? AND appointment_date = CURDATE()
+             WHERE patient_id = ? AND physician_id = ? AND appointment_date = ?
              ORDER BY generated_at DESC LIMIT 1",
-            [$patientId, $physicianId]
+            [$patientId, $physicianId, self::DEMO_DATE]
         );
         if (empty($row)) {
             return null;
@@ -505,7 +506,7 @@ TEXT;
             "INSERT INTO copilot_brief_cache
                 (patient_id, physician_id, appointment_id, appointment_date,
                  brief_text, follow_up_json, citation_registry, data_snapshot_hash, generated_at)
-             VALUES (?, ?, ?, CURDATE(), ?, '[]', ?, ?, NOW())
+             VALUES (?, ?, ?, ?, ?, '[]', ?, ?, NOW())
              ON DUPLICATE KEY UPDATE
                 brief_text         = VALUES(brief_text),
                 citation_registry  = VALUES(citation_registry),
@@ -515,6 +516,7 @@ TEXT;
                 $patientId,
                 $physicianId,
                 $appointmentId,
+                self::DEMO_DATE,
                 $briefText,
                 json_encode($sources),
                 $patientData['data_hash'] ?? '',

@@ -65,7 +65,7 @@ function renderContent(content: string, isStreaming: boolean): string {
 // ---------------------------------------------------------------------------
 
 function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicianId: number) {
-  const cacheKey = `copilot_${pid}_${physicianId}_${new Date().toISOString().slice(0, 10)}`;
+  const cacheKey = `copilot_${pid}_${physicianId}_2026-04-28`;
 
   const [messages, setMessages]         = useState<Message[]>(() => loadCache(cacheKey)?.messages ?? []);
   const [sources, setSources]           = useState<Record<string, CiteSource>>(() => loadCache(cacheKey)?.sources ?? {});
