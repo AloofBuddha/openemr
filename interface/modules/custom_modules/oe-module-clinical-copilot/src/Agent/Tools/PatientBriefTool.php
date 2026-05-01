@@ -17,7 +17,7 @@ namespace OpenEMR\Modules\ClinicalCopilot\Agent\Tools;
 class PatientBriefTool
 {
     // Frozen for demo — keeps "today's appointments" stable regardless of calendar date
-    private const DEMO_DATE = '2026-04-29';
+    private const DEMO_DATE = '2026-04-28';
 
     /**
      * Returns structured patient context for LLM consumption.
