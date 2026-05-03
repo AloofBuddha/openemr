@@ -81,6 +81,25 @@ Dr. Chen's panel includes patients across hypertension, diabetes, COPD, CAD, anx
 
 ---
 
+## Deploying to production
+
+The prod server is a DigitalOcean droplet at `198.211.103.246`. PHP files and the JS bundle are volume-mounted in Docker — no container restart needed after a pull.
+
+```bash
+scripts/deploy.sh
+```
+
+This pushes `master` to GitLab and SSHs into the droplet to `git pull`. Requires `~/.ssh/id_ed25519` to have access to the droplet.
+
+To deploy manually:
+
+```bash
+git push origin master
+ssh -i ~/.ssh/id_ed25519 root@198.211.103.246 "cd /root/openemr && git pull origin master"
+```
+
+---
+
 ## Building the Co-Pilot UI
 
 The widget is a React/TypeScript app built with Vite. Source lives in:
@@ -120,6 +139,7 @@ sql/
   demo_augment4.sql  UC-specific data (Wanda referral/Rx, Susan mammogram referral)
 scripts/
   demo_load.sh       Single command to load all demo data
+  deploy.sh          Push to GitLab + pull on prod droplet
 interface/modules/custom_modules/oe-module-clinical-copilot/
   src/
     Bootstrap.php              Module entry — hooks into OpenEMR event system

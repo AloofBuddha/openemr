@@ -52,54 +52,66 @@ The co-pilot now supports multi-turn follow-up questions. Each follow-up re-send
 
 ---
 
-## Demo Flow (4 min)
+## SHORT Demo Flow (3 min target)
 
-### 1. The Problem (30s) — show patient demographics page
-
-> "A physician walking between exam rooms has 90 seconds to remember who their next patient is, why they're here, and what's changed since the last visit. OpenEMR has all that information — finding it requires clicking through 4–6 screens. By the time you're done, you've spent the visit looking at a screen instead of the patient."
+Keep each section tight. Say one thing, show it, move on. Don't read from notes.
 
 ---
 
-### 2. The Audit Finding That Shaped the Architecture (30s) — show AUDIT.md briefly
+### 1. Problem (20s) — show OpenEMR patient list / chart tabs
 
-> "Before writing a line of agent code I audited OpenEMR's codebase. Key finding: the REST API has no per-patient authorization — Dr. Rivera could query Dr. Chen's patients with no ACL violation. That single finding drove the architecture: the agent calls the PHP service layer directly, where I enforce a care-relationship check before any data is retrieved."
-
----
-
-### 3. Live Demo (90s) — prod at http://198.211.103.246.nip.io
-
-Log in as Dr. Chen: `sarah.chen` / `Sarah1234!`
-
-1. Open a patient with a today's appointment (Phil Belford or Marcus Johnson)
-2. Watch the brief stream — point out it starts within ~1s
-3. Click an underlined citation phrase
-4. Show the source drawer: *"This is the raw database record — not AI interpretation, the actual prescriptions row."*
-5. Click "View in chart" — show it scrolling to the relevant EHR card
-6. Ask a follow-up question (e.g. "Show me Marcus's A1C trend")
-7. Show the multi-turn response with a compact table + new suggestion chips
-
-> "The physician never leaves this page. Inline citations so every claim is verifiable in one tap. Follow-up questions answered in context."
+> "A physician walking between rooms has 90 seconds to remember who their next patient is. OpenEMR has everything they need — spread across six tabs. The co-pilot collapses it to a 5-bullet brief before they walk in."
 
 ---
 
-### 4. How We Know It Works (45s) — show eval_results.md
+### 2. Live Demo (80s) — prod at http://198.211.103.246.nip.io
 
-> "The eval harness runs 18 cases including prompt injection in three vectors, cross-physician access, brand/generic drug name aliasing, and multi-turn adversarial follow-ups. Most checks run at 100%. The one interesting case: when the model uses a brand name — Jardiance — that isn't in the prescriptions table, a second LLM call determines it's an alias for empagliflozin, which is. Regex first, LLM only on ambiguous positives."
+Log in: `sarah.chen` / `Sarah1234!`
+
+1. Open Phil Belford (appointment today). Brief starts streaming immediately.
+2. Point out the underlined citation phrases while it streams.
+3. When done: click a citation — show the source drawer. Say: *"This is the raw database row — not an interpretation. The physician can verify every claim in one tap."*
+4. Click "View in chart" — shows it scrolling to the relevant EHR section.
+5. Ask the follow-up: *"Show me his A1C trend"* — show the compact table + new suggestion chips.
+
+> "Never leaves the page. Every claim cited. Multi-turn context preserved in the same session."
 
 ---
 
-### 5. The Hard Problem We Haven't Solved (30s)
+### 3. Architecture Round Trip (35s) — talk over the code or a diagram
 
-> "Errors of omission. The system can't detect what's missing from the record. A medication prescribed by an outside specialist and never entered into OpenEMR is invisible — and the agent's 'not on record' response looks identical to a genuine negative. The UI communicates this limitation on every brief, but it's a constraint the physician must internalize."
+Explain the full call stack verbally:
+
+> "When the page loads, a React bundle bootstraps inside the OpenEMR frame. It reads the patient ID from the DOM, checks localStorage for a same-day cached brief, and on a cache miss fires a POST to the PHP backend.
+>
+> The PHP endpoint — before touching any data — runs PatientAccessGuard: checks whether this physician has a prior encounter with this patient OR an appointment today. No relationship, 403.
+>
+> Past the guard, PatientBriefTool runs five SQL queries: demographics, today's appointment, last encounter with its SOAP note, active prescriptions, and recent labs. It builds a source registry — a numbered map from each data point to its raw database row.
+>
+> That structured block goes to Claude Haiku as a SOURCES message. The model streams back bullets with [[N]]phrase[[/N]] citation markers. The PHP layer pipes it out as Server-Sent Events. The frontend strips the markers as they arrive, renders each bullet live, and on completion resolves citations against the source registry to power the drawer.
+>
+> Total latency: ~1s to first token. Same patient mid-shift: zero latency — 30-minute server cache."
+
+---
+
+### 4. Evals (25s) — show eval_results.md
+
+> "35 test cases: 25 brief cases and 10 adversarial multi-turn cases. The brief cases cover missing data, six injection vectors — including unicode obfuscation and social engineering — polypharmacy, stale encounter flagging, brand/generic drug aliasing. The multi-turn cases test cross-patient refusal, PII requests, roleplay jailbreaks, system prompt extraction, false diagnosis confirmation. Most checks at 100%. The one interesting find: injection in the appointment reason field was originally failing — the model echoed the injected string. Fixed by explicitly naming the attack surface in the system prompt."
+
+---
+
+### 5. Limitation (10s)
+
+> "The one problem this can't solve: errors of omission. A medication from an outside provider that was never entered is invisible — and 'not on record' looks the same as a genuine negative. The brief says so on every load."
 
 ---
 
 ## Before You Hit Record
 
-- [ ] Log into prod, confirm a patient has an appointment today
-- [ ] Clear brief cache so it streams live: `DELETE FROM copilot_brief_cache WHERE patient_id = 1;`
-- [ ] Have `eval_results.md` open to cut to for the eval section
-- [ ] Have AUDIT.md open to cut to for the audit section
+- [ ] Log into prod, confirm Phil Belford has a today appointment
+- [ ] Run `DELETE FROM copilot_brief_cache WHERE patient_id = 1;` to clear server cache
+- [ ] Open `eval_results.md` tab for the evals cut
+- [ ] Practice the architecture paragraph out loud once — it's the hardest part to say cleanly
 
 ---
 

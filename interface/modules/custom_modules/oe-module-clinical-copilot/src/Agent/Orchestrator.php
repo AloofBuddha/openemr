@@ -174,10 +174,10 @@ PROMPT;
         // Always emit so the client doesn't wait for an event that never arrives
         $this->emitEvent('suggestions', ['suggestions' => $suggestions]);
 
-        // Cache the brief on first turn
+        // Cache the brief on first turn (store suggestions so cache hits can re-emit them)
         if ($isBrief && !empty($fullText)) {
             $cleanText = preg_replace('/\nSUGGESTIONS:\s*\[.*?\]\s*$/s', '', $fullText) ?? $fullText;
-            $this->saveCache($patientId, $physicianId, $context['patient_data'], $cleanText, $context['sources']);
+            $this->saveCache($patientId, $physicianId, $context['patient_data'], $cleanText, $context['sources'], $suggestions);
         }
 
         $totalMs = (int) (microtime(true) * 1000) - $startMs;
@@ -218,10 +218,13 @@ PROMPT;
         if (!$forceRefresh) {
             $cached = $this->fetchCache($patientId, $physicianId);
             if ($cached !== null) {
-                $cachedSources = json_decode($cached['citation_registry'] ?? '{}', true) ?? [];
-                $this->emitEvent('sources', ['sources' => $cachedSources]);
-                $this->emitEvent('cached', ['text' => $cached['brief_text']]);
-                $this->emitEvent('done', ['cached' => true]);
+                $cachedSources      = json_decode($cached['citation_registry'] ?? '{}', true) ?? [];
+                $cachedSuggestions  = json_decode($cached['follow_up_json'] ?? '[]', true);
+                $cachedSuggestions  = is_array($cachedSuggestions) ? $cachedSuggestions : [];
+                $this->emitEvent('sources',      ['sources'     => $cachedSources]);
+                $this->emitEvent('cached',       ['text'        => $cached['brief_text']]);
+                $this->emitEvent('suggestions',  ['suggestions' => $cachedSuggestions]);
+                $this->emitEvent('done',         ['cached'      => true]);
                 return;
             }
         }
@@ -493,12 +496,18 @@ TEXT;
         return $row;
     }
 
+    /**
+     * @param list<string> $suggestions
+     * @param array<string, mixed> $sources
+     * @param array<string, mixed> $patientData
+     */
     private function saveCache(
         int $patientId,
         int $physicianId,
         array $patientData,
         string $briefText,
         array $sources,
+        array $suggestions = [],
     ): void {
         $appointmentId = $patientData['today_appointment']['appointment_id'] ?? 0;
 
@@ -506,9 +515,10 @@ TEXT;
             "INSERT INTO copilot_brief_cache
                 (patient_id, physician_id, appointment_id, appointment_date,
                  brief_text, follow_up_json, citation_registry, data_snapshot_hash, generated_at)
-             VALUES (?, ?, ?, ?, ?, '[]', ?, ?, NOW())
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
              ON DUPLICATE KEY UPDATE
                 brief_text         = VALUES(brief_text),
+                follow_up_json     = VALUES(follow_up_json),
                 citation_registry  = VALUES(citation_registry),
                 data_snapshot_hash = VALUES(data_snapshot_hash),
                 generated_at       = NOW()",
@@ -518,6 +528,7 @@ TEXT;
                 $appointmentId,
                 self::DEMO_DATE,
                 $briefText,
+                json_encode(array_values($suggestions)),
                 json_encode($sources),
                 $patientData['data_hash'] ?? '',
             ]
