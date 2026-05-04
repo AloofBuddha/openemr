@@ -459,7 +459,124 @@ VALUES (216, '14771-0', 'Fasting glucose', '118', 'mg/dL', '70-99', 'H', 'final'
        (217, '4548-4',  'Hemoglobin A1c',  '6.1', '%',     '4.0-5.6','H','final', '2025-07-26');
 
 -- =============================================================================
+-- MARGARET CHEN (pid=20) — Primary W2 demo patient
+-- Matches the example documents in example-documents/:
+--   lab-results/p01-chen-lipid-panel.pdf   (lipid panel, 2026-04-22)
+--   intake-forms/p01-chen-intake-typed.pdf (new patient intake)
+-- T2DM + HTN + hyperlipidemia + family Hx of MI
+-- New patient presenting with exertional chest tightness + fatigue
+-- =============================================================================
+
+INSERT INTO patient_data (pid, uuid, fname, lname, DOB, sex, providerID,
+    street, city, state, postal_code, phone_home, status, regdate)
+VALUES
+(20, UNHEX(REPLACE(UUID(),'-','')), 'Margaret', 'Chen', '1967-08-14', 'Female', 10,
+    '4421 Magnolia Ave Apt 3B', 'Austin', 'TX', '78704', '510-555-0148', 'active', '2026-04-22')
+ON DUPLICATE KEY UPDATE fname = VALUES(fname);
+
+-- 4 encounters over ~2 years (she transferred care from Berkeley to Austin)
+INSERT INTO form_encounter (id, date, reason, pid, encounter, provider_id, facility_id, pc_catid)
+VALUES
+(150, '2024-06-10 09:00:00', 'New patient — transfer of care, chronic disease review', 20, 150, 10, 3, 5),
+(151, '2024-12-04 09:30:00', 'Diabetes + HTN 6-month follow-up',                       20, 151, 10, 3, 5),
+(152, '2025-06-18 09:00:00', 'Diabetes poorly controlled — A1C worsening',             20, 152, 10, 3, 5),
+(153, '2025-12-10 09:30:00', 'Annual review — lipids + glycemic management',            20, 153, 10, 3, 5);
+
+INSERT INTO form_soap (date, pid, user, groupname, authorized, activity, subjective, objective, assessment, plan)
+VALUES
+-- Transfer of care visit
+('2024-06-10 09:00:00', 20, 'sarah.chen', 'Default', 1, 1,
+ 'New patient transferring from Berkeley. T2DM x6 years, HTN x8 years, hyperlipidemia x4 years. On Metformin, Lisinopril, Atorvastatin, baby aspirin. Reports diet compliance is "okay." No hypoglycemic episodes. Mild fatigue.',
+ 'BP 138/86, HR 74, Weight 172 lbs, BMI 28.4. Well-appearing. No edema. Lungs clear. A1C 7.1% (Berkeley, May 2024).',
+ 'T2DM — near goal. HTN — borderline controlled. Hyperlipidemia — on statin. Cardio prevention per family Hx.',
+ 'Continue current medications. Recheck A1C and lipids in 6 months. Counseled on DASH diet and exercise. Annual foot exam completed.'),
+
+-- 6-month follow-up
+('2024-12-04 09:30:00', 20, 'sarah.chen', 'Default', 1, 1,
+ 'Fatigue improving. Occasional mild headaches. Denies chest pain or palpitations. Diet compliance variable — holiday season. Exercise: walking 3x/week.',
+ 'BP 142/88, HR 76, Weight 174 lbs. A1C 7.4% (up from 7.1%). LDL 148 mg/dL, HDL 46 mg/dL, TG 162 mg/dL.',
+ 'T2DM — A1C trending up. HTN — not at goal. Hyperlipidemia — LDL above goal for DM patient, HDL low.',
+ 'Increase Atorvastatin to 20mg (was 10mg). Reinforce dietary sodium restriction. Consider uptitrating Metformin if A1C continues to rise. Recheck in 6 months.'),
+
+-- Worsening A1C visit
+('2025-06-18 09:00:00', 20, 'sarah.chen', 'Default', 1, 1,
+ 'Reports increased fatigue and mild nocturia x2 months. Diet compliance poor — work stress. Walking less. Denies chest pain. Worried about diabetes complications — mother started insulin this year.',
+ 'BP 146/90, HR 80, Weight 178 lbs (up 4 lbs). A1C 8.0%. Fasting glucose 188. Feet: normal sensation bilaterally.',
+ 'T2DM — poorly controlled, A1C rising despite dual-agent therapy. HTN — above goal. Hyperlipidemia — insufficient lipid data this visit.',
+ 'Increase Metformin to 1000mg BID (from 500mg BID). Intensify lifestyle counseling. Refer to diabetes educator. Recheck A1C + full lipid panel in 6 months. Consider adding GLP-1 agonist if no improvement.'),
+
+-- Annual review
+('2025-12-10 09:30:00', 20, 'sarah.chen', 'Default', 1, 1,
+ 'A1C improved somewhat. Reports trying harder with diet. Still fatigued. No chest pain at rest. Slight chest tightness walking uphill — denies at time of visit. Father had MI at 61; she is now 58.',
+ 'BP 144/88, HR 78, Weight 176 lbs. A1C 7.6% (down from 8.0%). LDL 162 mg/dL (H), HDL 47 mg/dL (L), TG 171 mg/dL (H). Non-HDL-C 172 mg/dL.',
+ 'T2DM — improving but not at goal. HTN — persistent. Hyperlipidemia — LDL above target for high-risk DM patient. Exertional symptoms warrant evaluation.',
+ 'Order stress EKG given exertional symptoms and family Hx. Reorder lipid panel in spring. Discuss statin intensification pending lipid results. Cardiology referral if stress test abnormal. Follow up 4-6 months.');
+
+-- Active medications (match intake form exactly)
+INSERT INTO prescriptions (id, patient_id, provider_id, encounter, drug, drug_id,
+    rxnorm_drugcode, dosage, quantity, start_date, end_date, refills, active, note,
+    txDate, usage_category_title, request_intent_title, uuid)
+VALUES
+(60, 20, 10, 150, 'Lisinopril',          0, '29046',   '10mg QD',      30, '2024-06-10', NULL, 11, 1, 'HTN',                    '2024-06-10', '', '', UNHEX(REPLACE(UUID(),'-',''))),
+(61, 20, 10, 152, 'Metformin',           0, '6809',    '1000mg BID',   60, '2025-06-18', NULL, 11, 1, 'T2DM - increased dose',  '2025-06-18', '', '', UNHEX(REPLACE(UUID(),'-',''))),
+(62, 20, 10, 151, 'Atorvastatin',        0, '83367',   '20mg at bedtime',30,'2024-12-04', NULL, 11, 1, 'Hyperlipidemia',         '2024-12-04', '', '', UNHEX(REPLACE(UUID(),'-',''))),
+(63, 20, 10, 150, 'Aspirin',             0, '243670',  '81mg QD',      30, '2024-06-10', NULL, 11, 1, 'Cardio prevention',      '2024-06-10', '', '', UNHEX(REPLACE(UUID(),'-','')));
+
+-- Allergies
+INSERT INTO lists (pid, type, title, begdate, enddate, returndate, occurrence, classification,
+    referredby, extrainfo, diagnosis, activity, comments, outcome, groupname, user, assigned_to, date)
+VALUES
+(20, 'allergy', 'Penicillin',        '1999-01-01', NULL, NULL, 0, NULL, NULL, 'Hives (wheal)',     'SNOMED:91936005',  1, 'Moderate severity', NULL, 'Default', 'sarah.chen', NULL, NOW()),
+(20, 'allergy', 'Sulfa drugs',       '2010-01-01', NULL, NULL, 0, NULL, NULL, 'Rash',              'SNOMED:763875007', 1, 'Mild severity',     NULL, 'Default', 'sarah.chen', NULL, NOW()),
+(20, 'allergy', 'Shellfish/iodine?', NULL,         NULL, NULL, 0, NULL, NULL, 'Itchy? Uncertain',  NULL,               1, 'Unclear — verify',  NULL, 'Default', 'sarah.chen', NULL, NOW());
+
+-- Problem list
+INSERT INTO lists (pid, type, title, begdate, enddate, returndate, occurrence, classification,
+    referredby, extrainfo, diagnosis, activity, comments, outcome, groupname, user, assigned_to, date)
+VALUES
+(20, 'medical_problem', 'Type 2 diabetes mellitus',  '2018-01-01', NULL, NULL, 0, NULL, NULL, NULL, 'ICD10:E11.9',  1, NULL, NULL, 'Default', 'sarah.chen', NULL, NOW()),
+(20, 'medical_problem', 'Essential hypertension',    '2016-01-01', NULL, NULL, 0, NULL, NULL, NULL, 'ICD10:I10',    1, NULL, NULL, 'Default', 'sarah.chen', NULL, NOW()),
+(20, 'medical_problem', 'Hyperlipidemia',            '2020-01-01', NULL, NULL, 0, NULL, NULL, NULL, 'ICD10:E78.5',  1, NULL, NULL, 'Default', 'sarah.chen', NULL, NOW());
+
+-- Lab trends: A1C trajectory (worsening then improving)
+INSERT INTO procedure_order (procedure_order_id, provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+VALUES
+(300, 10, 20, 150, '2024-06-10', 'complete', 1),
+(301, 10, 20, 151, '2024-12-04', 'complete', 1),
+(302, 10, 20, 152, '2025-06-18', 'complete', 1),
+(303, 10, 20, 153, '2025-12-10', 'complete', 1);
+
+INSERT INTO procedure_report (procedure_report_id, procedure_order_id, date_report, report_status)
+VALUES
+(300, 300, '2024-06-12', 'final'),
+(301, 301, '2024-12-06', 'final'),
+(302, 302, '2025-06-20', 'final'),
+(303, 303, '2025-12-12', 'final');
+
+INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+VALUES
+-- A1C trend: improving → worsening → partial recovery
+(300, '4548-4',  'Hemoglobin A1c',    '7.1', '%',     '4.0-5.6', 'H', 'final', '2024-06-12'),
+(300, '14771-0', 'Fasting glucose',   '142', 'mg/dL', '70-99',   'H', 'final', '2024-06-12'),
+(301, '4548-4',  'Hemoglobin A1c',    '7.4', '%',     '4.0-5.6', 'H', 'final', '2024-12-06'),
+(301, '2093-3',  'Cholesterol Total', '218', 'mg/dL', '<200',    'H', 'final', '2024-12-06'),
+(301, '2085-9',  'HDL Cholesterol',   '46',  'mg/dL', '>50',     'L', 'final', '2024-12-06'),
+(301, '13457-7', 'LDL Cholesterol',   '148', 'mg/dL', '<100',    'H', 'final', '2024-12-06'),
+(301, '2571-8',  'Triglycerides',     '162', 'mg/dL', '<150',    'H', 'final', '2024-12-06'),
+(302, '4548-4',  'Hemoglobin A1c',    '8.0', '%',     '4.0-5.6', 'H', 'final', '2025-06-20'),
+(302, '14771-0', 'Fasting glucose',   '188', 'mg/dL', '70-99',   'H', 'final', '2025-06-20'),
+(303, '4548-4',  'Hemoglobin A1c',    '7.6', '%',     '4.0-5.6', 'H', 'final', '2025-12-12'),
+(303, '2093-3',  'Cholesterol Total', '228', 'mg/dL', '<200',    'H', 'final', '2025-12-12'),
+(303, '2085-9',  'HDL Cholesterol',   '47',  'mg/dL', '>50',     'L', 'final', '2025-12-12'),
+(303, '13457-7', 'LDL Cholesterol',   '162', 'mg/dL', '<100',    'H', 'final', '2025-12-12'),
+(303, '2571-8',  'Triglycerides',     '171', 'mg/dL', '<150',    'H', 'final', '2025-12-12'),
+(303, '2160-0',  'Creatinine',        '0.9', 'mg/dL', '0.5-1.1', 'N', 'final', '2025-12-12'),
+(303, '2823-3',  'Potassium',         '4.0', 'mEq/L', '3.5-5.1', 'N', 'final', '2025-12-12');
+
+-- =============================================================================
 -- TODAY'S APPOINTMENTS (2026-04-27) — Dr. Sarah Chen's schedule
+-- Margaret Chen is first (08:55) — primary W2 demo patient with uploaded documents
+-- Marcus Johnson remains second for W1 demo continuity
 -- UC-1: Brief me on my next patient / UC-5: What do I need to know today
 -- =============================================================================
 
@@ -468,10 +585,11 @@ INSERT INTO openemr_postcalendar_events
      pc_eventDate, pc_startTime, pc_endTime, pc_duration, pc_alldayevent,
      pc_apptstatus, pc_prefcatid, pc_multiple, pc_sharing, pc_facility, pc_eventstatus)
 VALUES
-(5, '10', '4',  'Diabetes follow-up',         '2026-04-27 09:00:00', 'A1C recheck post-Jardiance addition',   '2026-04-27', '09:00:00', '09:20:00', 1200, 0, '@', 0, 0, 1, 3, 1),
-(5, '10', '7',  'Quarterly chronic review',   '2026-04-27 09:30:00', 'BP elevated at last visit; BMP + INR',  '2026-04-27', '09:30:00', '09:50:00', 1200, 0, '@', 0, 0, 1, 3, 1),
-(5, '10', '1',  'Hypertension follow-up',     '2026-04-27 10:00:00', 'BP recheck 6 wks post Lisinopril uptitration', '2026-04-27', '10:00:00', '10:20:00', 1200, 0, '@', 0, 0, 1, 3, 1),
-(5, '10', '11', 'Migraine management',        '2026-04-27 10:30:00', 'Propranolol efficacy check',            '2026-04-27', '10:30:00', '10:50:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '20', 'New patient follow-up',      '2026-04-27 08:55:00', 'Chest tightness on exertion x3 weeks; lipid panel + intake form uploaded by front desk', '2026-04-27', '08:55:00', '09:15:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '4',  'Diabetes follow-up',         '2026-04-27 09:20:00', 'A1C recheck post-Jardiance addition',   '2026-04-27', '09:20:00', '09:40:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '7',  'Quarterly chronic review',   '2026-04-27 09:45:00', 'BP elevated at last visit; BMP + INR',  '2026-04-27', '09:45:00', '10:05:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '1',  'Hypertension follow-up',     '2026-04-27 10:10:00', 'BP recheck 6 wks post Lisinopril uptitration', '2026-04-27', '10:10:00', '10:30:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '11', 'Migraine management',        '2026-04-27 10:35:00', 'Propranolol efficacy check',            '2026-04-27', '10:35:00', '10:55:00', 1200, 0, '@', 0, 0, 1, 3, 1),
 (5, '10', '6',  'Asthma medication check',    '2026-04-27 11:00:00', 'Follow-up after fluticasone addition',  '2026-04-27', '11:00:00', '11:20:00', 1200, 0, '@', 0, 0, 1, 3, 1),
 (9, '10', '2',  'Annual wellness exam',       '2026-04-27 11:30:00', 'Overdue mammogram referral follow-up',  '2026-04-27', '11:30:00', '12:00:00', 1800, 0, '@', 0, 0, 1, 3, 1),
 (5, '10', '3',  'Medication check',           '2026-04-27 13:00:00', 'Sertraline - has not been seen in 14 months', '2026-04-27', '13:00:00', '13:20:00', 1200, 0, '@', 0, 0, 1, 3, 1),
