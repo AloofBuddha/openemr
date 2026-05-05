@@ -128,10 +128,19 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
   const abortRef      = useRef<AbortController | null>(null);
   const wasCachedRef  = useRef(false);
   const hasLocalCache = useRef(loadCache(cacheKey) !== null);
+  const [needsSave, setNeedsSave] = useState(false);
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { sourcesRef.current = sources; }, [sources]);
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
+
+  // Save cache after React commits all state (including suggestions) rather than
+  // inside a state updater, which runs before concurrent updates are reflected.
+  useEffect(() => {
+    if (!needsSave) return;
+    setNeedsSave(false);
+    saveCache(cacheKey, messages, sources, snapshot);
+  }, [needsSave, cacheKey, messages, sources, snapshot]);
 
   const send = useCallback(async (userText: string, hidden = false) => {
     abortRef.current?.abort();
@@ -227,13 +236,10 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
                 m.id === assistantId ? { ...m, suggestions: chips } : m
               ));
             } else if (eventType === 'done') {
-              setMessages(prev => {
-                const updated = prev.map(m =>
-                  m.id === assistantId ? { ...m, isStreaming: false } : m
-                );
-                saveCache(cacheKey, updated, sourcesRef.current, snapshotRef.current);
-                return updated;
-              });
+              setMessages(prev => prev.map(m =>
+                m.id === assistantId ? { ...m, isStreaming: false } : m
+              ));
+              setNeedsSave(true);
               setStatus(wasCachedRef.current ? 'cached' : 'live');
             } else if (eventType === 'error') {
               setInlineError(userText);

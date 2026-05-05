@@ -4,43 +4,86 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Context
 
-This is a fork of [OpenEMR](https://open-emr.org) being used to build a **Clinical Co-Pilot** — an AI agent embedded in the EHR that gives physicians a 90-second patient briefing between exam rooms. The project is a Gauntlet AI Week 1 sprint.
+This is a fork of [OpenEMR](https://open-emr.org) being used to build a **Clinical Co-Pilot** — an AI agent embedded in the EHR that gives physicians a 90-second patient briefing between exam rooms. The project is a **Gauntlet AI Week 2 sprint** (AgentForge: Multimodal Evidence Agent).
+
+**Week 2 adds three capabilities on top of the Week 1 foundation:**
+1. **Document ingestion + schema-validated extraction** — lab PDFs and intake forms via `attach_and_extract`, two-path (pdfplumber text / Claude Haiku Vision), Pydantic-validated output
+2. **Hybrid RAG** — BM25 + ChromaDB + Cohere Rerank over a small clinical-guideline corpus (ACC/AHA, ADA, USPSTF)
+3. **Multi-agent graph** — LangGraph supervisor routing to `intake-extractor` and `evidence-retriever` workers with logged handoffs
+
+**Architecture shift:** Week 1 runs entirely in PHP. Week 2 adds a **Python FastAPI sidecar** (`copilot-agent/`, port 8400, internal only) that owns the LangGraph graph, extraction, and RAG. PHP module proxies to it.
+
+**Deployed at:** http://198.211.103.246.nip.io — deploy via `bash scripts/deploy.sh`
 
 ## Where the Agent Code Lives
 
-The Clinical Co-Pilot is built as an OpenEMR custom module:
-
+**PHP module (Week 1 + W2 proxy layer):**
 ```
 interface/modules/custom_modules/oe-module-clinical-copilot/
+  public/chat.php        — Week 1 brief, SSE stream
+  public/upload.php      — stores file in OpenEMR, calls sidecar /ingest
+  public/agent-query.php — SSE proxy to sidecar /query  (W2, TODO)
+  src/Agent/             — Orchestrator, PatientBriefTool
+  src/Authorization/     — PatientAccessGuard
+  src/Observability/     — AgentAuditLogger
+  copilot-ui/src/        — CopilotPanel.tsx (React/TypeScript)
 ```
 
-Reference any existing module in that directory (e.g., `oe-module-dashboard-context/`) for the expected file layout and registration patterns.
+**Python sidecar (Week 2 — multi-agent + extraction + RAG):**
+```
+copilot-agent/
+  main.py                — FastAPI: /ingest, /query, /docs/{id}/page/{n}
+  agent/graph.py         — LangGraph supervisor + 2 workers
+  agent/supervisor.py    — routing, SupervisorDecision schema
+  agent/intake_extractor.py  — two-path extraction (pdfplumber / Haiku Vision)
+  agent/evidence_retriever.py — hybrid RAG + Cohere rerank
+  schemas/               — Pydantic: lab.py, intake.py, citation.py
+  rag/                   — corpus/, indexer.py (BM25+ChromaDB), retriever.py
+  requirements.txt
+```
+
+**Evals:**
+```
+evals/
+  run.py                 — eval harness (expand to 50 cases for W2)
+  check_gate.py          — CI gate, exits 1 on regression  (TODO)
+  baseline.json          — committed pass rates            (TODO)
+  cases/                 — W2 extraction/RAG/citation cases (TODO)
+```
 
 Backend services go under `src/` using the `OpenEMR\` PSR-4 namespace. New AI/LLM service classes belong in `src/Services/` extending `BaseService`.
 
-## Required Deliverables
+## Week 2 Deliverable Checklist
 
-**Sequencing constraint:** The audit is a hard gate — `AUDIT.md` must be complete before writing any agent code. `USERS.md` must be complete before `ARCHITECTURE.md`. The sequence is: run locally → deploy → audit → user profiles → architecture plan → build.
+| Checkpoint | Deadline | Status |
+|---|---|---|
+| Architecture Defense | Done | ✅ `W2_ARCHITECTURE.md` complete |
+| **MVP** | **Tue 11:59PM** | 🔴 Sidecar not built yet |
+| Early Submission | Thu 11:59PM | — |
+| Final | Sun Noon | — |
 
-Files at repo root:
+### MVP (tonight) — minimum required:
+- [ ] Python sidecar with `/ingest` endpoint (pdfplumber + Haiku Vision extraction)
+- [ ] Pydantic schemas: LabExtraction, IntakeExtraction, SourceCitation
+- [ ] `upload.php` calls sidecar after storing file, returns extraction summary
+- [ ] Basic hybrid RAG with BM25 + ChromaDB + rerank
+- [ ] LangGraph supervisor + intake-extractor + evidence-retriever workers
+- [ ] UI shows extraction result after upload
 
-| File | Content |
-|------|---------|
-| `AUDIT.md` | Security, performance, architecture, data quality, HIPAA/compliance audit. ~500-word summary first. |
-| `USERS.md` | Narrow target user, concrete workflow, specific use cases, explicit justification for why agent > dashboard per case. Every agent capability must trace back to a use case here. |
-| `ARCHITECTURE.md` | AI integration plan drawn from audit findings: where agent lives, data access pattern, auth boundaries, verification strategy, tradeoffs. ~500-word summary first. |
+### Early Submission (Thu) — adds:
+- [ ] 50-case eval suite with W2 boolean rubrics (schema_valid, citation_present, factually_consistent, no_phi_in_logs)
+- [ ] PR-blocking Git Hook (`evals/check_gate.py`)
+- [ ] `evals/baseline.json` committed
+- [ ] Deployed app with W2 flow working
+- [ ] Demo video (3-5 min)
+- [ ] Cost and latency report
 
-Additional submission deliverables (Early and Final):
-- **Eval dataset** — test suite covering failure modes, missing data, auth bypass attempts, adversarial inputs; not just happy-path cases
-- **AI cost analysis** — actual dev spend + projected costs at 100/1K/10K/100K users, including architectural changes needed at each scale
-- **Demo video** (3–5 min) with each submission
-- **Deployed application** — live and reachable; same infra used for final agent
-
-The agent itself must include:
-- Multi-turn conversational interface grounded in OpenEMR patient data
-- Verification layer: every claim attributed to a source record + domain constraint enforcement
-- Observability from day one: per-request step order, timing, tool failures, token costs
-- Eval suite covering failure modes (missing data, auth bypass attempts, out-of-scope queries)
+### Core W2 requirements (all checkpoints):
+- Every clinical claim has machine-readable citation: `{source_type, source_id, page_or_section, field_or_chunk_id, quote_or_value}`
+- Guideline citations and patient-record citations are visually distinct
+- Supervisor routing decisions are logged as structured JSON (not free-text)
+- No raw PHI in logs (only metadata: doc_id, field count, confidence, duration)
+- Sidecar is unreachable from outside — PHP validates session before proxying
 
 ## Key OpenEMR APIs for the Agent
 

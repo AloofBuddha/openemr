@@ -175,18 +175,23 @@ PROMPT;
         );
 
         // Parse suggestions block from end of response.
-        // Use strrpos to find the last SUGGESTIONS: marker, then extract the JSON array
-        // regardless of surrounding whitespace or whether the model added trailing text.
         $suggestions = [];
         $sugPos = strrpos($fullText, 'SUGGESTIONS:');
         if ($sugPos !== false) {
             $rest = ltrim(substr($fullText, $sugPos + strlen('SUGGESTIONS:')));
-            if (preg_match('/(\[.*?\])/s', $rest, $m)) {
+            // Greedy match to handle multi-line arrays; stops at the outermost closing bracket.
+            if (preg_match('/(\[.*\])/s', $rest, $m)) {
                 $decoded = json_decode($m[1], true);
                 if (is_array($decoded)) {
                     $suggestions = array_values(array_filter($decoded, 'is_string'));
+                } else {
+                    error_log('[CopilotSuggestions] json_decode failed for: ' . substr($m[1], 0, 200));
                 }
+            } else {
+                error_log('[CopilotSuggestions] regex no match, rest_preview: ' . substr($rest, 0, 200));
             }
+        } else {
+            error_log('[CopilotSuggestions] SUGGESTIONS: not found in fullText (len=' . strlen($fullText) . ')');
         }
 
         // Always emit so the client doesn't wait for an event that never arrives
