@@ -27,11 +27,22 @@ Answer the physician's query concisely (1-3 paragraphs) using only the patient c
 guideline evidence provided below. Never fabricate clinical facts.
 
 Inline citation format:
-- For patient record facts: [[N]]phrase[[/N]] where N is the record citation number
-- For guideline evidence: [[GN]]phrase[[/GN]] where N is the guideline number
+- For guideline evidence ONLY: [[GN]]phrase[[/GN]] where N is the guideline number (e.g. [[G1]], [[G2]])
+- Do NOT use [[N]] numeric citations for patient record facts — patient context is provided
+  as plain text reference only. State patient facts directly without citing them.
 
-Every specific clinical claim must have an inline citation. Use "unknown" if information is
-not present in the provided context.
+Every guideline claim must have an inline [[GN]] citation. Patient context facts should be
+stated naturally. Use "unknown" if information is not present in the provided context.
+
+MEDICAL ADVICE RULE:
+If the query asks for a specific clinical decision — what to prescribe, exact dose, whether
+to order a test, or a definitive diagnosis — do NOT make that decision. Instead:
+1. Open with a single sentence: "I can't make specific clinical decisions, but guidelines
+   offer the following context:"
+2. Cite the most relevant guideline evidence with [[GN]] inline citations.
+3. End with a brief note that the physician should apply their clinical judgment.
+This rule does NOT apply to informational questions (explaining a condition, summarising
+results, listing risk factors) — answer those directly.
 
 ---
 PHYSICIAN QUERY:
@@ -323,39 +334,41 @@ def build_graph(
     # Edges: supervisor routes to workers or answer_assembler or END
     # ------------------------------------------------------------------
 
-    def route_from_supervisor(state: AgentState) -> list[str]:
-        """Read the supervisor decision and return the next node(s) to call."""
+    def route_from_supervisor(state: AgentState) -> str:
+        """Return the single next node name from the supervisor decision."""
         decision_data = state.get("_supervisor_decision", {})
         next_workers: list[str] = decision_data.get("next_workers", [])
         intent: list[str] = decision_data.get("intent", [])
 
-        if "out_of_scope" in intent and not next_workers:
-            return ["answer_assembler"]
-
         valid_nodes = {"intake_extractor", "evidence_retriever", "answer_assembler"}
-        routed = [w for w in next_workers if w in valid_nodes]
 
-        if not routed:
-            # Safety fallback: nothing valid selected → go straight to answer
-            return ["answer_assembler"]
+        if "out_of_scope" in intent and not any(w in valid_nodes for w in next_workers):
+            return "answer_assembler"
 
-        return routed
+        # If docs are already extracted and evidence is still needed, skip intake_extractor
+        already_extracted_ids = {d.get("openemr_doc_id") for d in state.get("extracted_docs", [])}
+        doc_ids = set(state.get("doc_ids", []))
+        docs_covered = doc_ids and doc_ids.issubset(already_extracted_ids)
+        needs_evidence = "needs_evidence" in intent or "evidence_retriever" in next_workers
+        if docs_covered and needs_evidence and not state.get("guideline_chunks"):
+            return "evidence_retriever"
+
+        for worker in next_workers:
+            if worker in valid_nodes:
+                return worker
+
+        return "answer_assembler"
 
     workflow.set_entry_point("supervisor")
 
     workflow.add_conditional_edges(
         "supervisor",
         route_from_supervisor,
-        {
-            "intake_extractor": "intake_extractor",
-            "evidence_retriever": "evidence_retriever",
-            "answer_assembler": "answer_assembler",
-        },
     )
 
-    # After each worker, return to supervisor for re-evaluation
-    workflow.add_edge("intake_extractor", "supervisor")
-    workflow.add_edge("evidence_retriever", "supervisor")
+    # After each worker, go straight to answer_assembler
+    workflow.add_edge("intake_extractor", "answer_assembler")
+    workflow.add_edge("evidence_retriever", "answer_assembler")
 
     # answer_assembler is terminal
     workflow.add_edge("answer_assembler", END)

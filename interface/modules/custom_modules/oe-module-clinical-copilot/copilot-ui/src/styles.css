@@ -239,6 +239,7 @@
   border-bottom: 1px dashed #1a6094;
   color: inherit;
   font: inherit;
+  text-align: inherit;
   padding: 0;
   margin: 0;
   cursor: pointer;
@@ -834,3 +835,61 @@
 
 @keyframes copilot-spin { to { transform: rotate(360deg); } }
 .copilot-spin { animation: copilot-spin 0.8s linear infinite; }
+
+/* ── W2: extraction preview ───────────────────────────────────────────────── */
+.copilot-file-item { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.copilot-file-row  { display: flex; align-items: center; gap: 6px; }
+
+.copilot-extraction {
+  font-size: 11px;
+  padding: 6px 8px;
+  background: #f8faff;
+  border-top: 1px solid #d0e4f5;
+  border-radius: 0 0 4px 4px;
+}
+.copilot-extraction-title {
+  font-weight: 600;
+  color: #1a4a7a;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.copilot-extraction-table { width: 100%; border-collapse: collapse; }
+.copilot-extraction-table td { padding: 2px 4px; vertical-align: top; }
+.copilot-extraction-test  { color: #334; font-weight: 500; }
+.copilot-extraction-val   { color: #334; }
+.copilot-extraction-flag  { font-weight: 700; color: #b91c1c; padding-left: 4px; }
+.copilot-extraction-abnormal .copilot-extraction-test { color: #b91c1c; }
+.copilot-extraction-more    { color: #64748b; font-style: italic; margin-top: 3px; }
+.copilot-extraction-warning { color: #92400e; font-size: 10px; margin-top: 2px; }
+.copilot-extraction-row     { display: flex; gap: 6px; margin-top: 2px; }
+.copilot-extraction-key     { font-weight: 600; color: #475569; min-width: 80px; }
+
+/* ── W2: doc badge in header ─────────────────────────────────────────────── */
+.copilot-badge-docs {
+  background: #dbeafe;
+  color: #1d4ed8;
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+/* ── W2: guideline citation style ────────────────────────────────────────── */
+.copilot-cite-guideline {
+  background: linear-gradient(90deg, #ede9fe 0%, #f5f3ff 100%);
+  border-color: #a78bfa;
+  color: #5b21b6;
+}
+.copilot-drawer-type-guideline { background: #ede9fe; color: #5b21b6; }
+
+/* ── Modal row for multiple selects ─────────────────────────────────────── */
+.copilot-modal-row {
+  display: flex;
+  gap: 12px;
+  padding: 0 16px 8px;
+}
+.copilot-modal-row .copilot-modal-category { flex: 1; }

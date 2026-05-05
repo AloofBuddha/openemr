@@ -46,6 +46,10 @@ logger.info("Compiling agent graph...")
 graph = build_graph(anthropic_client, cohere_client, bm25, bm25_chunks, chroma_collection)
 logger.info("Agent graph ready")
 
+# In-memory extraction cache: openemr_doc_id -> extraction result dict
+# Populated by /ingest, read by /query to pre-fill extracted_docs.
+_extraction_cache: dict[int, dict] = {}
+
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -108,7 +112,10 @@ async def ingest(req: IngestRequest):
         logger.exception("Extraction failed for doc_id=%d", req.openemr_doc_id)
         raise HTTPException(status_code=500, detail="Document extraction failed.") from exc
 
-    return result.model_dump()
+    result_dict = result.model_dump()
+    _extraction_cache[req.openemr_doc_id] = result_dict
+    logger.info("Cached extraction for doc_id=%d", req.openemr_doc_id)
+    return result_dict
 
 
 @app.post("/query")
@@ -120,11 +127,21 @@ async def query(req: QueryRequest):
         event: done    — empty payload, signals stream end
     """
     async def event_stream():
+        # Pre-populate extracted_docs from ingest cache so the graph can use them
+        pre_extracted = [
+            _extraction_cache[doc_id]
+            for doc_id in req.doc_ids
+            if doc_id in _extraction_cache
+        ]
+        missing_ids = [d for d in req.doc_ids if d not in _extraction_cache]
+        if missing_ids:
+            logger.warning("doc_ids not in extraction cache (not yet ingested): %s", missing_ids)
+
         state = {
             "query": req.query,
             "patient_id": req.patient_id,
             "doc_ids": req.doc_ids,
-            "extracted_docs": [],
+            "extracted_docs": pre_extracted,
             "guideline_chunks": [],
             "patient_context": req.patient_context,
             "answer": "",

@@ -167,7 +167,8 @@ $docType       = in_array($docTypeRaw, $allowedTypes, true) ? $docTypeRaw : 'lab
 
 // Forward the stored file to the Python sidecar for text extraction.
 $extractionResult = null;
-$sidecarUrl = 'http://127.0.0.1:8400/ingest';
+$sidecarHost = getenv('COPILOT_SIDECAR_HOST') ?: '127.0.0.1';
+$sidecarUrl = "http://{$sidecarHost}:8400/ingest";
 $payload = json_encode([
     'patient_id'      => $pid,
     'openemr_doc_id'  => $newId,

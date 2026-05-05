@@ -1,17 +1,18 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { marked } from 'marked';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   ChevronDown, ChevronUp, Minimize2, Maximize2,
   RotateCcw, X, Send, FileText, Plus, Upload,
   Check, XCircle, Loader2, AlertCircle, Paperclip,
+  FlaskConical, ExternalLink,
 } from 'lucide-react';
 import './styles.css';
 
 type Status = 'idle' | 'loading' | 'streaming' | 'live' | 'cached' | 'error';
 
 interface SourceField { key: string; value: string; }
-interface CiteSource  { type: string; label: string; fields: SourceField[]; scroll_to?: string; }
+interface CiteSource  { type: string; label: string; fields: SourceField[]; scroll_to?: string; doc_url?: string; }
 
 interface SnapshotPatient  { name: string; age: string; sex: string; dob: string; }
 interface SnapshotAppt     { time: string; reason: string; }
@@ -29,6 +30,21 @@ interface Snapshot {
   allergies:   SnapshotAllergy[];
   labs:        SnapshotLab[];
   documents:   SnapshotDoc[];
+}
+
+interface LabResultItem {
+  test_name: string;
+  value: string;
+  unit?: string;
+  reference_range?: string;
+  abnormal_flag?: string | null;
+}
+interface ExtractionSummary {
+  doc_type: string;
+  results?: LabResultItem[];
+  chief_concern?: string;
+  current_medications?: Array<{ name?: string; dose?: string; frequency?: string }>;
+  extraction_warnings?: string[];
 }
 
 interface Message {
@@ -84,11 +100,30 @@ function saveCache(key: string, messages: Message[], sources: Record<string, Cit
   } catch { /* quota or private browsing */ }
 }
 
+// ─── Build patient context string from snapshot (for agent POST) ───────────
+
+function buildPatientContext(snap: Snapshot | null): string {
+  if (!snap) return '';
+  const lines: string[] = [
+    `Patient: ${snap.patient.name}, ${snap.patient.age}y ${snap.patient.sex}`,
+  ];
+  if (snap.appointment?.reason) lines.push(`Today's visit: ${snap.appointment.reason}`);
+  if (snap.problems.length) lines.push(`Problems: ${snap.problems.map(p => p.title).join(', ')}`);
+  if (snap.medications.length) lines.push(`Medications: ${snap.medications.map(m => `${m.drug} ${m.dosage}`.trim()).join('; ')}`);
+  if (snap.allergies.length) lines.push(`Allergies: ${snap.allergies.map(a => a.title).join(', ')}`);
+  if (snap.labs.length) {
+    lines.push(`Recent labs: ${snap.labs.slice(0, 8).map(l =>
+      `${l.test} ${l.value}${l.units}${l.abnormal ? ` [${l.abnormal}]` : ''}`
+    ).join(', ')}`);
+  }
+  return lines.join('\n');
+}
+
 // ─── Render markdown + citations ───────────────────────────────────────────
 
-// Recursively replaces [[N]]...[[/N]] citation markers, innermost first.
+// Matches [[N]]..[[/N]] (patient records) and [[GN]]..[[/GN]] (guidelines)
 function replaceCites(text: string, sources: Record<string, CiteSource>): string {
-  return text.replace(/\[\[(\d+)\]\]([\s\S]*?)\[\[\/\1\]\]/g, (_, idx, inner) => {
+  return text.replace(/\[\[([G]?\d+)\]\]([\s\S]*?)\[\[\/\1\]\]/g, (_, idx, inner) => {
     const src = sources[idx];
     const typeClass = src ? ` copilot-cite-${src.type}` : '';
     return `<button class="copilot-cite-text${typeClass}" data-src="${idx}">${replaceCites(inner, sources)}</button>`;
@@ -102,7 +137,7 @@ function renderContent(
 ): string {
   let text = content.replace(/\nSUGGESTIONS:[\s\S]*$/, '').trimEnd();
   if (isStreaming) {
-    text = text.replace(/\[\[(\d+)\]\]/g, '').replace(/\[\[\/\d+\]\]/g, '');
+    text = text.replace(/\[\[[G]?\d+\]\]/g, '').replace(/\[\[\/[G]?\d+\]\]/g, '');
   } else {
     text = replaceCites(text, sources);
   }
@@ -116,12 +151,21 @@ function renderContent(
 function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicianId: number) {
   const cacheKey = `copilot_${pid}_${physicianId}_${todayKey()}`;
 
+  const agentQueryUrl = useMemo(
+    () => apiUrl.replace(/\/chat\.php([^/]*)$/, '/agent-query.php'),
+    [apiUrl],
+  );
+
   const [messages, setMessages]         = useState<Message[]>(() => loadCache(cacheKey)?.messages ?? []);
+  // Merge sources rather than replace — preserves patient-brief citations when agent adds guideline sources
   const [sources, setSources]           = useState<Record<string, CiteSource>>(() => loadCache(cacheKey)?.sources ?? {});
   const [activeSource, setActiveSource] = useState<CiteSource | null>(null);
   const [snapshot, setSnapshot]         = useState<Snapshot | null>(() => loadCache(cacheKey)?.snapshot ?? null);
   const snapshotRef = useRef<Snapshot | null>(null);
   const [status, setStatus]             = useState<Status>(() => loadCache(cacheKey) ? 'cached' : 'idle');
+
+  const [uploadedDocIds, setUploadedDocIds] = useState<number[]>([]);
+  const uploadedDocIdsRef = useRef<number[]>([]);
 
   const messagesRef   = useRef<Message[]>([]);
   const sourcesRef    = useRef<Record<string, CiteSource>>({});
@@ -133,16 +177,15 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { sourcesRef.current = sources; }, [sources]);
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
+  useEffect(() => { uploadedDocIdsRef.current = uploadedDocIds; }, [uploadedDocIds]);
 
-  // Save cache after React commits all state (including suggestions) rather than
-  // inside a state updater, which runs before concurrent updates are reflected.
   useEffect(() => {
     if (!needsSave) return;
     setNeedsSave(false);
     saveCache(cacheKey, messages, sources, snapshot);
   }, [needsSave, cacheKey, messages, sources, snapshot]);
 
-  const send = useCallback(async (userText: string, hidden = false) => {
+  const send = useCallback(async (userText: string, hidden = false, extraDocIds: number[] = []) => {
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     wasCachedRef.current = false;
@@ -161,11 +204,27 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
     setStatus('loading');
     setActiveSource(null);
 
-    const body = new URLSearchParams({
-      pid:             String(pid),
-      csrf_token_form: csrfToken,
-      messages:        JSON.stringify(history),
-    });
+    // Route: hidden initial brief → W1 chat.php; all visible queries → W2 agent
+    const useAgent = !hidden;
+    const endpoint = useAgent ? agentQueryUrl : apiUrl;
+
+    const docIds = useAgent
+      ? [...new Set([...uploadedDocIdsRef.current, ...extraDocIds])]
+      : [];
+
+    const body = useAgent
+      ? new URLSearchParams({
+          pid:             String(pid),
+          csrf_token_form: csrfToken,
+          query:           userText,
+          doc_ids:         JSON.stringify(docIds),
+          patient_context: buildPatientContext(snapshotRef.current),
+        })
+      : new URLSearchParams({
+          pid:             String(pid),
+          csrf_token_form: csrfToken,
+          messages:        JSON.stringify(history),
+        });
 
     const setInlineError = (retryText: string) => {
       setMessages(prev => prev.map(m =>
@@ -177,20 +236,14 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
     };
 
     try {
-      const res = await fetch(apiUrl, {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body:   body.toString(),
         signal: abortRef.current.signal,
       });
-      if (!res.ok) {
-        setInlineError(userText);
-        return;
-      }
-      if (!res.body) {
-        setInlineError(userText);
-        return;
-      }
+      if (!res.ok) { setInlineError(userText); return; }
+      if (!res.body) { setInlineError(userText); return; }
 
       const reader  = res.body.getReader();
       const decoder = new TextDecoder();
@@ -219,7 +272,8 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
               setSnapshot(snap);
               snapshotRef.current = snap;
             } else if (eventType === 'sources') {
-              setSources((data.sources as Record<string, CiteSource>) ?? {});
+              // Merge — don't replace — so patient-brief citations stay live alongside guideline sources
+              setSources(prev => ({ ...prev, ...(data.sources as Record<string, CiteSource> ?? {}) }));
             } else if (eventType === 'delta') {
               const chunk = (data.text as string) ?? '';
               setMessages(prev => prev.map(m =>
@@ -252,7 +306,7 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
       if ((e as Error).name === 'AbortError') return;
       setInlineError(userText);
     }
-  }, [pid, apiUrl, csrfToken, cacheKey]);
+  }, [pid, apiUrl, agentQueryUrl, csrfToken, cacheKey]);
 
   const restart = useCallback(() => {
     abortRef.current?.abort();
@@ -261,6 +315,7 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
     setMessages([]);
     setSources({});
     setActiveSource(null);
+    setUploadedDocIds([]);
     setStatus('idle');
     setTimeout(() => send('Brief me on this patient.', true), 30);
   }, [send, cacheKey]);
@@ -273,7 +328,35 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
     setSnapshot(prev => prev ? { ...prev, documents: [doc, ...prev.documents] } : prev);
   }, []);
 
-  return { messages, sources, activeSource, setActiveSource, snapshot, status, send, restart, addDocToSnapshot };
+  // Push extracted lab results into the snapshot labs array so they appear in the card immediately
+  const addLabsToSnapshot = useCallback((labs: SnapshotLab[]) => {
+    setSnapshot(prev => {
+      if (!prev) return prev;
+      // Normalize test name for deduplication: lowercase, strip punctuation, collapse spaces
+      const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+      const dateOf = (l: SnapshotLab) => l.date || '';
+      // Merge: build map keyed by normalized name, keeping the entry with the latest date
+      const merged = new Map<string, SnapshotLab>();
+      for (const l of [...prev.labs, ...labs]) {
+        const k = normName(l.test);
+        const existing = merged.get(k);
+        if (!existing || dateOf(l) >= dateOf(existing)) merged.set(k, l);
+      }
+      // Preserve original order (most recent first) by sorting by date desc
+      const sorted = Array.from(merged.values()).sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
+      return { ...prev, labs: sorted };
+    });
+  }, []);
+
+  const addDocId = useCallback((id: number) => {
+    setUploadedDocIds(prev => [...prev, id]);
+  }, []);
+
+  return {
+    messages, sources, activeSource, setActiveSource, snapshot,
+    status, send, restart,
+    addDocToSnapshot, addLabsToSnapshot, addDocId, uploadedDocIds,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -283,8 +366,11 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
 const WIDE_BREAKPOINT = 800;
 
 export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId, webRoot, categories }: Props) {
-  const { messages, sources, activeSource, setActiveSource, snapshot, status, send, restart, addDocToSnapshot } =
-    useCopilotChat(pid, apiUrl, csrfToken, physicianId);
+  const {
+    messages, sources, activeSource, setActiveSource, snapshot,
+    status, send, restart,
+    addDocToSnapshot, addLabsToSnapshot, addDocId, uploadedDocIds,
+  } = useCopilotChat(pid, apiUrl, csrfToken, physicianId);
 
   const uploadUrl = apiUrl.replace(/chat\.php([^/]*)$/, `upload.php?pid=${pid}&site=default`);
 
@@ -396,6 +482,12 @@ export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId, webRoot, cat
       <div className="copilot-header">
         <strong>Clinical Co-Pilot</strong>
         <div className="copilot-header-actions">
+          {uploadedDocIds.length > 0 && (
+            <span className="copilot-badge copilot-badge-docs" title={`${uploadedDocIds.length} document(s) uploaded this session`}>
+              <FlaskConical size={11} style={{ marginRight: 3 }} />
+              {uploadedDocIds.length} doc{uploadedDocIds.length !== 1 ? 's' : ''}
+            </span>
+          )}
           <StatusBadge status={status} />
           <button className="copilot-btn-icon" onClick={restart} disabled={isBusy} title="Restart">
             <RotateCcw size={14} />
@@ -448,7 +540,30 @@ export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId, webRoot, cat
         csrfToken={csrfToken}
         categories={categories}
         pid={pid}
-        onUploaded={doc => { addDocToSnapshot(doc); }}
+        onUploaded={(doc, extraction) => {
+          addDocToSnapshot(doc);
+          addDocId(doc.id);
+          // Push extracted labs into the snapshot card immediately
+          if (extraction?.doc_type === 'lab_pdf' && extraction.results?.length) {
+            const today = new Date().toISOString().slice(0, 10);
+            addLabsToSnapshot(extraction.results.map(r => ({
+              test:     r.test_name,
+              value:    r.value,
+              units:    r.unit ?? '',
+              abnormal: r.abnormal_flag ?? '',
+              date:     today,
+            })));
+          }
+          // Auto-trigger agent analysis
+          const label = extraction?.doc_type === 'intake_form' ? 'intake form' : 'lab report';
+          setTimeout(() => {
+            send(
+              `Analyze the uploaded ${label} and highlight any abnormal values or clinical concerns. Reference applicable guidelines.`,
+              false,
+              [doc.id],
+            );
+          }, 300);
+        }}
       />
     </div>
   );
@@ -558,6 +673,7 @@ const TYPE_LABELS: Record<string, string> = {
   problem:     'Problem',
   allergy:     'Allergy',
   document:    'Document',
+  guideline:   'Clinical Guideline',
 };
 
 function SourceDrawer({ source, onClose, width }: {
@@ -609,11 +725,22 @@ function SourceDrawer({ source, onClose, width }: {
           <p className="copilot-drawer-empty">No record details available.</p>
         )}
       </div>
-      {source.scroll_to && (
-        <div className="copilot-drawer-footer">
+      <div className="copilot-drawer-footer">
+        {source.doc_url && (
+          <a
+            href={source.doc_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="copilot-drawer-link"
+          >
+            <ExternalLink size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+            View source document
+          </a>
+        )}
+        {source.scroll_to && (
           <button className="copilot-drawer-link" onClick={handleScrollTo}>View in chart ↓</button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -677,21 +804,11 @@ function PatientSnapshot({ snapshot, compact, onOpenSource, onOpenUpload, webRoo
     scroll_to: '#labdata_ps_expand',
   });
 
-  const makeDocSource = (d: SnapshotDoc): CiteSource => ({
-    type: 'document', label: d.name,
-    fields: [
-      { key: 'Name', value: d.name },
-      { key: 'Date', value: d.date },
-    ].filter(f => f.value),
-  });
-
   const chipClick = (src: CiteSource) => onOpenSource?.(src);
-
   const reasonText = appointment?.reason ?? '';
 
   return (
     <div className={`copilot-snapshot${compact ? ' copilot-snapshot-compact' : ''}`}>
-      {/* Identity row — always visible, click to expand/collapse */}
       <div className="copilot-snapshot-identity" onClick={() => setExpanded(e => !e)} role="button">
         <span className="copilot-snapshot-name">{patient.name}</span>
         <span className="copilot-snapshot-demo">
@@ -711,14 +828,12 @@ function PatientSnapshot({ snapshot, compact, onOpenSource, onOpenUpload, webRoo
       </div>
 
       {expanded && <>
-        {/* Visit reason — full text, wraps when expanded */}
         {reasonText && (
           <div className="copilot-snapshot-visit-reason copilot-snapshot-visit-reason--expanded">
             {reasonText}
           </div>
         )}
 
-        {/* Problems */}
         {problems.length > 0 && (
           <div className="copilot-snapshot-row">
             <span className="copilot-snapshot-label copilot-label-problem">Problems</span>
@@ -735,7 +850,6 @@ function PatientSnapshot({ snapshot, compact, onOpenSource, onOpenUpload, webRoo
           </div>
         )}
 
-        {/* Allergies — always show; "None documented" is clinically distinct from row being absent */}
         <div className="copilot-snapshot-row">
           <span className="copilot-snapshot-label copilot-label-allergy">Allergies</span>
           <div className="copilot-snapshot-chips">
@@ -752,7 +866,6 @@ function PatientSnapshot({ snapshot, compact, onOpenSource, onOpenUpload, webRoo
           </div>
         </div>
 
-        {/* Medications — always show */}
         <div className="copilot-snapshot-row">
           <span className="copilot-snapshot-label copilot-label-med">Meds</span>
           <div className="copilot-snapshot-chips">
@@ -769,7 +882,6 @@ function PatientSnapshot({ snapshot, compact, onOpenSource, onOpenUpload, webRoo
           </div>
         </div>
 
-        {/* Labs */}
         {sortedLabs.length > 0 && (
           <div className="copilot-snapshot-row">
             <span className="copilot-snapshot-label copilot-label-lab">Labs</span>
@@ -793,7 +905,6 @@ function PatientSnapshot({ snapshot, compact, onOpenSource, onOpenUpload, webRoo
           </div>
         )}
 
-        {/* Documents + upload trigger */}
         <div className="copilot-snapshot-row">
           <span className="copilot-snapshot-label copilot-label-doc">Docs</span>
           <div className="copilot-snapshot-chips">
@@ -824,7 +935,7 @@ function PatientSnapshot({ snapshot, compact, onOpenSource, onOpenUpload, webRoo
 }
 
 // ---------------------------------------------------------------------------
-// Upload modal (Radix Dialog — externally controlled)
+// Upload modal — type dropdown removed; doc_type inferred from category name
 // ---------------------------------------------------------------------------
 
 interface UploadedFile {
@@ -833,6 +944,15 @@ interface UploadedFile {
   size: string;
   status: 'uploading' | 'done' | 'error';
   error?: string;
+  extraction?: ExtractionSummary | null;
+}
+
+function inferDocType(categoryName: string): 'lab_pdf' | 'intake_form' {
+  const lower = categoryName.toLowerCase();
+  if (lower.includes('intake') || lower.includes('consent') || lower.includes('history')) {
+    return 'intake_form';
+  }
+  return 'lab_pdf';
 }
 
 function UploadModal({ open, onOpenChange, uploadUrl, csrfToken, categories, pid, onUploaded }: {
@@ -842,14 +962,13 @@ function UploadModal({ open, onOpenChange, uploadUrl, csrfToken, categories, pid
   csrfToken: string;
   categories: DocCategory[];
   pid: number;
-  onUploaded: (doc: SnapshotDoc) => void;
+  onUploaded: (doc: SnapshotDoc, extraction: ExtractionSummary | null) => void;
 }) {
-  const [files, setFiles]         = useState<UploadedFile[]>([]);
-  const [dragOver, setDragOver]   = useState(false);
+  const [files, setFiles]           = useState<UploadedFile[]>([]);
+  const [dragOver, setDragOver]     = useState(false);
   const [categoryId, setCategoryId] = useState<number>(categories[0]?.id ?? 1);
-  const fileInputRef              = useRef<HTMLInputElement>(null);
+  const fileInputRef                = useRef<HTMLInputElement>(null);
 
-  // Reset file list when modal closes
   useEffect(() => {
     if (!open) setFiles([]);
   }, [open]);
@@ -866,22 +985,27 @@ function UploadModal({ open, onOpenChange, uploadUrl, csrfToken, categories, pid
     }]);
 
     try {
+      const cat        = categories.find(c => c.id === categoryId);
+      const docType    = cat ? inferDocType(cat.name) : 'lab_pdf';
+
       const fd = new FormData();
       fd.append('file', file);
       fd.append('pid', String(pid));
       fd.append('csrf_token_form', csrfToken);
       fd.append('category_id', String(categoryId));
+      fd.append('doc_type', docType);
 
       const res = await fetch(uploadUrl, { method: 'POST', body: fd, credentials: 'same-origin' });
       const text = await res.text();
       if (res.status === 401) throw new Error('Session expired — please refresh the page.');
-      let json: { id?: number; name?: string; date?: string; error?: string };
-      try { json = JSON.parse(text); } catch { throw new Error('Unexpected server response. Check that you are still logged in.'); }
+      let json: { id?: number; name?: string; date?: string; error?: string; extraction?: ExtractionSummary | null };
+      try { json = JSON.parse(text); } catch { throw new Error('Unexpected server response.'); }
 
       if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
 
-      onUploaded({ id: json.id!, name: json.name!, date: json.date! });
-      setFiles(prev => prev.map(f => f.fid === fid ? { ...f, status: 'done' } : f));
+      const extraction = json.extraction ?? null;
+      onUploaded({ id: json.id!, name: json.name!, date: json.date! }, extraction);
+      setFiles(prev => prev.map(f => f.fid === fid ? { ...f, status: 'done', extraction } : f));
     } catch (err) {
       setFiles(prev => prev.map(f =>
         f.fid === fid ? { ...f, status: 'error', error: (err as Error).message } : f
@@ -955,13 +1079,18 @@ function UploadModal({ open, onOpenChange, uploadUrl, csrfToken, categories, pid
             <ul className="copilot-file-list">
               {files.map((f, i) => (
                 <li key={i} className={`copilot-file-item copilot-file-${f.status}`}>
-                  <span className="copilot-file-icon">
-                    {f.status === 'done'      ? <Check size={13} />
-                   : f.status === 'error'     ? <XCircle size={13} />
-                   : <Loader2 size={13} className="copilot-spin" />}
-                  </span>
-                  <span className="copilot-file-name" title={f.name}>{f.name}</span>
-                  <span className="copilot-file-size">{f.error ?? f.size}</span>
+                  <div className="copilot-file-row">
+                    <span className="copilot-file-icon">
+                      {f.status === 'done'      ? <Check size={13} />
+                     : f.status === 'error'     ? <XCircle size={13} />
+                     : <Loader2 size={13} className="copilot-spin" />}
+                    </span>
+                    <span className="copilot-file-name" title={f.name}>{f.name}</span>
+                    <span className="copilot-file-size">{f.error ?? f.size}</span>
+                  </div>
+                  {f.status === 'done' && f.extraction && (
+                    <ExtractionPreview extraction={f.extraction} />
+                  )}
                 </li>
               ))}
             </ul>
@@ -970,6 +1099,69 @@ function UploadModal({ open, onOpenChange, uploadUrl, csrfToken, categories, pid
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+// ─── Extraction preview in upload modal ───────────────────────────────────
+
+function ExtractionPreview({ extraction }: { extraction: ExtractionSummary }) {
+  if (extraction.doc_type === 'lab_pdf' && extraction.results && extraction.results.length > 0) {
+    const shown  = extraction.results.slice(0, 5);
+    const hidden = extraction.results.length - shown.length;
+    return (
+      <div className="copilot-extraction">
+        <div className="copilot-extraction-title">
+          <FlaskConical size={11} /> Extracted {extraction.results.length} result{extraction.results.length !== 1 ? 's' : ''}
+        </div>
+        <table className="copilot-extraction-table">
+          <tbody>
+            {shown.map((r, i) => {
+              const flag = r.abnormal_flag ?? '';
+              return (
+                <tr key={i} className={flag ? 'copilot-extraction-abnormal' : ''}>
+                  <td className="copilot-extraction-test">{r.test_name}</td>
+                  <td className="copilot-extraction-val">{r.value} {r.unit ?? ''}</td>
+                  {flag && <td className="copilot-extraction-flag">{flag}</td>}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {hidden > 0 && <div className="copilot-extraction-more">+{hidden} more</div>}
+        {extraction.extraction_warnings?.map((w, i) => (
+          <div key={i} className="copilot-extraction-warning">{w}</div>
+        ))}
+      </div>
+    );
+  }
+
+  if (extraction.doc_type === 'intake_form') {
+    return (
+      <div className="copilot-extraction">
+        <div className="copilot-extraction-title">Intake form extracted</div>
+        {extraction.chief_concern && (
+          <div className="copilot-extraction-row">
+            <span className="copilot-extraction-key">Chief concern</span>
+            <span className="copilot-extraction-val">{extraction.chief_concern}</span>
+          </div>
+        )}
+        {extraction.current_medications && extraction.current_medications.length > 0 && (
+          <div className="copilot-extraction-row">
+            <span className="copilot-extraction-key">Medications</span>
+            <span className="copilot-extraction-val">
+              {extraction.current_medications.slice(0, 3).map((m, i) => (
+                <span key={i}>{m.name}{i < Math.min(extraction.current_medications!.length, 3) - 1 ? ', ' : ''}</span>
+              ))}
+            </span>
+          </div>
+        )}
+        {extraction.extraction_warnings?.map((w, i) => (
+          <div key={i} className="copilot-extraction-warning">{w}</div>
+        ))}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------

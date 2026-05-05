@@ -22,7 +22,7 @@ use OpenEMR\Modules\ClinicalCopilot\Observability\AgentAuditLogger;
 class Orchestrator
 {
     private const MODEL      = 'claude-sonnet-4-6';
-    private const MAX_TOKENS = 1024;
+    private const MAX_TOKENS = 1500;
 
     // First-turn: structured brief with citation markers + suggestion chips
     private const BRIEF_SYSTEM_PROMPT = <<<'PROMPT'
@@ -45,11 +45,12 @@ Rules:
 - At the very end of your response, on its own line, output exactly:
   SUGGESTIONS: followed by a JSON array of 2–3 follow-up questions using the patient's first name.
 
-  Chip selection — include only chips that apply to this patient's actual data:
+  Chip selection — pick 2–3 of the following:
   1. Lab trend: if the same lab test appears 2 or more times across different dates in the data, include "Show [first name]'s [test name] trend"
   2. History gap: if the last encounter was more than 6 months ago, include "Walk me through [first name]'s history since [last encounter date]"
   3. Medication check: if there are active medications, include one chart-answerable question about a specific drug — e.g. "When was [first name]'s [drug name] last adjusted?" (not pharmacology)
-  Use the patient's first name. Be specific ("Show Marcus's A1C trend" not "Show lab trends"). Every chip must be answerable from the chart data alone.
+  4. Guidelines (always include one): pick the patient's most clinically pressing condition (e.g. the one driving today's visit or with the worst-trending data) and write "What do guidelines say about [condition]?" — e.g. "What do guidelines say about poorly controlled diabetes?" or "What do guidelines say about Stage 3 CKD management?"
+  Use the patient's first name for chart questions (1–3). Use plain condition names (not first name) for the guideline chip (4).
 PROMPT;
 
     // Follow-up turns: concise answer grounded in the same patient context
@@ -67,14 +68,14 @@ Rules:
 - If a question is entirely unanswerable from chart data (pure clinical reference), say so in one sentence and move on.
 - For trend questions (multiple data points over time — lab values, weight, BP): format as a compact markdown table with columns Date | Value | Flag. Newest row first. Only include rows present in the data. Add a one-sentence trend summary after the table.
 - At the very end of your response, on its own line, output exactly:
-  SUGGESTIONS: followed by a JSON array of 0–2 follow-up questions answerable from this patient's chart data.
+  SUGGESTIONS: followed by a JSON array of 1–2 follow-up questions. Always include at least one.
 
   Chip selection after follow-ups — pick naturally from what was just answered:
   - After a lab trend answer: suggest the medication context if relevant (e.g. "What medications is [first name] on for this condition?")
   - After a medication answer: suggest related lab results (e.g. "What do [first name]'s recent labs show since starting [drug]?")
   - After a history recap: suggest today's visit context (e.g. "What is today's appointment for?")
   - After a today's-visit answer: suggest an open item if one exists from the brief
-  - Use [] if no follow-up fits naturally from the data just presented.
+  - If nothing fits naturally: use "What do guidelines say about [most relevant condition]?" as a fallback.
 PROMPT;
 
     public function __construct(
@@ -194,7 +195,10 @@ PROMPT;
             error_log('[CopilotSuggestions] SUGGESTIONS: not found in fullText (len=' . strlen($fullText) . ')');
         }
 
-        // Always emit so the client doesn't wait for an event that never arrives
+        // Fallback: ensure at least one suggestion is always present
+        if (empty($suggestions)) {
+            $suggestions = ['What do guidelines say about this patient\'s conditions?'];
+        }
         $this->emitEvent('suggestions', ['suggestions' => $suggestions]);
 
         $totalMs = (int) (microtime(true) * 1000) - $startMs;

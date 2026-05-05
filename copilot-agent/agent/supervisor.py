@@ -21,14 +21,15 @@ _HAIKU = "claude-haiku-4-5"
 class AgentState(TypedDict):
     query: str
     patient_id: int
-    doc_ids: list[int]           # openemr_doc_ids of uploaded docs
-    extracted_docs: list[dict]   # results from intake_extractor
-    guideline_chunks: list[dict] # results from evidence_retriever
-    patient_context: str         # pre-built patient record context (from PHP)
+    doc_ids: list[int]             # openemr_doc_ids of uploaded docs
+    extracted_docs: list[dict]     # results from intake_extractor
+    guideline_chunks: list[dict]   # results from evidence_retriever
+    patient_context: str           # pre-built patient record context (from PHP)
     answer: str
     citations: list[dict]
-    routing_log: list[dict]      # each: {node, decision, duration_ms}
+    routing_log: list[dict]        # each: {node, decision, duration_ms}
     iteration: int
+    _supervisor_decision: dict     # persisted so the conditional edge can read it
 
 
 # ---------------------------------------------------------------------------
