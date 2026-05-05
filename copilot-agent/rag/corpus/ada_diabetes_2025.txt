@@ -1,0 +1,44 @@
+[ADA 2025 §6.1] Glycemic Goals — General A1C Target
+For most non-pregnant adults with diabetes, an A1C goal of <7.0% (53 mmol/mol) is recommended. This target balances microvascular risk reduction against hypoglycemia risk. Individual targets should be set in collaboration with the patient, factoring in duration of diabetes, comorbidities, hypoglycemia unawareness, and patient preferences. Preprandial glucose target: 80–130 mg/dL; peak postprandial (1–2 hr after meal): <180 mg/dL.
+---
+[ADA 2025 §6.2] Glycemic Goals — Less Stringent Targets
+A less stringent A1C goal (<8.0% or <64 mmol/mol) is appropriate for patients with: history of severe hypoglycemia, limited life expectancy, advanced microvascular or macrovascular complications, extensive comorbid conditions, or long-standing diabetes where the general target is difficult to achieve without undue burden. Shared decision-making is essential; avoid clinical inertia at both ends of the spectrum.
+---
+[ADA 2025 §6.3] Glycemic Goals — More Stringent Targets
+A more stringent A1C goal (<6.5%) may be targeted in select patients if achievable without significant hypoglycemia or other adverse treatment effects. Candidates include: newly diagnosed type 2 diabetes with no cardiovascular disease or hypoglycemia risk, patients managed with lifestyle alone or metformin monotherapy, and younger patients with long life expectancy. Reassess periodically as disease progresses.
+---
+[ADA 2025 §7.1] First-Line Pharmacotherapy — Metformin
+Metformin remains the preferred initial pharmacologic agent for type 2 diabetes when tolerated and not contraindicated. It is low-cost, weight-neutral to modestly weight-reducing, does not cause hypoglycemia as monotherapy, and has a decades-long safety record. Start at 500 mg once or twice daily with meals; titrate to 1,000 mg twice daily over 4–8 weeks as tolerated. Contraindicated when eGFR <30 mL/min/1.73m². Hold before contrast procedures if eGFR <60.
+---
+[ADA 2025 §7.2] When to Intensify Therapy
+Intensify therapy when A1C exceeds individualized target on two consecutive measurements 3 months apart. Do not delay intensification due to clinical inertia — each 1% rise in A1C increases microvascular complication risk by 35–40%. After metformin, add a second agent based on cardiovascular/renal comorbidity profile. If A1C is >9% at diagnosis or >2% above goal, consider initiating combination therapy from the outset or insulin.
+---
+[ADA 2025 §7.3] GLP-1 Receptor Agonists — Cardiovascular and Weight Benefit
+GLP-1 receptor agonists (semaglutide, liraglutide, dulaglutide, tirzepatide) are recommended as second-line or first-line agents (ahead of metformin) for patients with established atherosclerotic cardiovascular disease (ASCVD), heart failure, or high ASCVD risk. Semaglutide (oral or injectable) and liraglutide have demonstrated significant reductions in MACE (major adverse cardiovascular events) in landmark trials (LEADER, SUSTAIN-6, PIONEER-6). Also provide 5–15% weight reduction.
+---
+[ADA 2025 §7.4] SGLT2 Inhibitors — Cardiovascular and Renal Benefit
+SGLT2 inhibitors (empagliflozin, dapagliflozin, canagliflozin) are recommended for patients with established ASCVD, heart failure with reduced or preserved ejection fraction, or CKD (eGFR ≥20). Empagliflozin reduced cardiovascular death by 38% in EMPA-REG OUTCOME. Dapagliflozin and canagliflozin showed renal protection in CREDENCE and DAPA-CKD trials. Do not use when eGFR <20. Screen for diabetic ketoacidosis (DKA) risk including sick-day management counseling.
+---
+[ADA 2025 §7.5] Insulin Therapy — When to Start
+Insulin therapy should be considered at diagnosis if A1C ≥10%, blood glucose ≥300 mg/dL, or patient is symptomatic (polyuria, polydipsia, weight loss). Basal insulin (glargine, detemir, degludec) is the preferred starting point. Initiate at 10 units/day or 0.1–0.2 units/kg/day; titrate by 2 units every 3 days targeting fasting glucose 80–130 mg/dL. Once basal insulin is optimized, add prandial coverage or transition to GLP-1/insulin combination products.
+---
+[ADA 2025 §8.1] Glycemic Monitoring — Self-Monitoring of Blood Glucose
+SMBG frequency should match therapeutic regimen and patient needs. Patients on multiple daily insulin injections or insulin pump therapy: test before meals, at bedtime, and as needed (illness, exercise, hypoglycemia symptoms). Patients on basal insulin: fasting SMBG daily to guide titration. Patients on non-insulin agents: structured periodic testing (e.g., 7-point profile over 3 days) every 3 months provides actionable information. Ensure meter accuracy and patient technique at each visit.
+---
+[ADA 2025 §8.2] Continuous Glucose Monitoring (CGM)
+CGM is recommended for all adults with type 1 diabetes. For type 2 diabetes, CGM is beneficial for patients on multiple daily insulin injections and increasingly used in patients on basal insulin alone. Key CGM metrics: Time in Range (TIR 70–180 mg/dL; goal ≥70%), Time Below Range (<70 mg/dL; goal <4%), Time Above Range (>180 mg/dL; goal <25%). GMI (Glucose Management Indicator) approximates A1C from CGM data. Intermittent scanning CGM (FreeStyle Libre) is lower cost alternative.
+---
+[ADA 2025 §9.1] Microvascular Complication Screening — Nephropathy
+Assess kidney function annually in all patients with type 2 diabetes from diagnosis, and in type 1 diabetes after 5 years. Measure both urine albumin-to-creatinine ratio (UACR) and eGFR. UACR ≥30 mg/g indicates albuminuria; initiate or optimize ACE inhibitor or ARB. CKD staging: G1–G5 based on eGFR; A1–A3 based on albuminuria. Refer to nephrology when eGFR <30 or when cause of CKD is unclear.
+---
+[ADA 2025 §9.2] Microvascular Complication Screening — Retinopathy
+Dilated eye exam at diagnosis for type 2 diabetes. If no retinopathy on first exam, rescreen every 1–2 years. If any retinopathy present, rescreen annually (or more frequently per ophthalmology). Teleretinal photography with AI-assisted analysis is an acceptable screening alternative where in-person ophthalmology access is limited. Optimize glycemic and blood pressure control to slow progression. Refer for laser or anti-VEGF therapy when proliferative retinopathy or diabetic macular edema develops.
+---
+[ADA 2025 §9.3] Microvascular Complication Screening — Neuropathy
+Screen for peripheral neuropathy at diagnosis for type 2 and after 5 years for type 1, then annually. Use 10-g monofilament test plus one of: vibration (128 Hz tuning fork), ankle reflexes, or pinprick sensation. Symptoms: burning, tingling, numbness in feet — often worse at night. Glycemic control slows progression. For painful diabetic neuropathy, first-line treatments: duloxetine, pregabalin, or gabapentin. Foot exam at every visit; annual comprehensive foot exam including ABI if peripheral artery disease suspected.
+---
+[ADA 2025 §10.1] Cardiovascular Risk Management
+Statin therapy is recommended for all patients with diabetes aged 40–75 regardless of baseline LDL if no contraindication: moderate-intensity statin as default; high-intensity for established ASCVD or high risk. Target LDL <70 mg/dL for high-risk patients; <55 mg/dL for very high risk (prior MI or ASCVD event). Add ezetimibe or PCSK9 inhibitor if target not achieved. Aspirin (81 mg/day) for secondary prevention in established ASCVD; not routinely recommended for primary prevention.
+---
+[ADA 2025 §11.1] Diabetes Prevention and Remission
+Patients with prediabetes (A1C 5.7–6.4%, IFG, or IGT) should be referred to an intensive lifestyle program (≥5–7% weight loss, ≥150 min/week physical activity) that can reduce diabetes incidence by 58%. Metformin 850 mg twice daily is an option for prevention in high-risk individuals (BMI ≥35, age <60, prior gestational diabetes). Diabetes remission (A1C <6.5% for ≥3 months off all glucose-lowering medications) is achievable with substantial weight loss via bariatric surgery or intensive dietary intervention.

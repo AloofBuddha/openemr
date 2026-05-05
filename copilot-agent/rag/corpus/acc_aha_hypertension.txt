@@ -1,0 +1,44 @@
+[ACC/AHA 2023 §2.1] Blood Pressure Classification — Normal
+Normal blood pressure is defined as systolic <120 mmHg AND diastolic <80 mmHg. Patients in this range should be encouraged to maintain heart-healthy lifestyle habits. Annual recheck is recommended. No pharmacologic intervention is indicated at this level. Lifestyle reinforcement remains the primary strategy.
+---
+[ACC/AHA 2023 §2.2] Blood Pressure Classification — Elevated
+Elevated blood pressure is systolic 120–129 mmHg with diastolic <80 mmHg. This category carries increased cardiovascular risk compared to normal. Pharmacologic therapy is not recommended at this stage. Intensive lifestyle intervention is the cornerstone of management. Recheck in 3–6 months is advised to monitor trajectory.
+---
+[ACC/AHA 2023 §2.3] Blood Pressure Classification — Stage 1 Hypertension
+Stage 1 hypertension is defined as systolic 130–139 mmHg OR diastolic 80–89 mmHg. Management is driven by the patient's 10-year ASCVD risk. For patients with ASCVD risk ≥10%, initiate pharmacologic therapy alongside lifestyle modification. For patients with ASCVD risk <10%, use lifestyle modification alone for 3–6 months before considering medication.
+---
+[ACC/AHA 2023 §2.4] Blood Pressure Classification — Stage 2 Hypertension
+Stage 2 hypertension is systolic ≥140 mmHg OR diastolic ≥90 mmHg. Prompt initiation of antihypertensive medication plus lifestyle changes is recommended regardless of ASCVD risk. Consider starting two agents from different drug classes, particularly when BP is >160/100 mmHg. Close follow-up within 1 month of initiating therapy is essential.
+---
+[ACC/AHA 2023 §3.1] Lifestyle Modifications — DASH Diet and Sodium Restriction
+The DASH (Dietary Approaches to Stop Hypertension) diet reduces systolic BP by 8–14 mmHg. Sodium intake should be limited to <1,500 mg/day (optimal) or at least <2,300 mg/day. Increasing dietary potassium to 3,500–5,000 mg/day further reduces BP. These dietary changes are effective as standalone therapy in Stage 1 and as adjuncts in Stage 2.
+---
+[ACC/AHA 2023 §3.2] Lifestyle Modifications — Physical Activity and Weight Loss
+Regular aerobic exercise (90–150 minutes/week of moderate intensity) lowers systolic BP by 5–8 mmHg. Resistance training 90–150 minutes/week provides additional benefit of 4 mmHg reduction. Weight loss of 1 kg is associated with approximately 1 mmHg reduction in systolic BP. A 5 kg loss can reduce systolic BP by 4–5 mmHg. Alcohol moderation (≤2 drinks/day men, ≤1 drink/day women) reduces BP by 3–4 mmHg.
+---
+[ACC/AHA 2023 §4.1] First-Line Antihypertensive Agents
+Four drug classes are recommended as first-line therapy: thiazide or thiazide-like diuretics (chlorthalidone preferred), calcium channel blockers (CCBs; amlodipine preferred), ACE inhibitors (e.g., lisinopril, ramipril), and angiotensin receptor blockers (ARBs; e.g., losartan, valsartan). All four classes have equivalent BP-lowering efficacy and proven cardiovascular outcome data. Choice among them should be driven by patient comorbidities, tolerability, and cost.
+---
+[ACC/AHA 2023 §4.2] Preferred Agents by Comorbidity
+In patients with chronic kidney disease (CKD) with proteinuria, ACE inhibitors or ARBs are preferred due to nephroprotective effects. In patients with heart failure with reduced ejection fraction (HFrEF), ACE inhibitors/ARBs plus beta-blockers are indicated. In patients with stable ischemic heart disease, beta-blockers and ACE inhibitors are first line. In Black patients without CKD or heart failure, thiazides and CCBs have demonstrated superior outcomes versus ACE inhibitors in clinical trials.
+---
+[ACC/AHA 2023 §4.3] When to Add a Second Agent
+If BP target is not achieved with maximally tolerated doses of one agent after 4 weeks, add a second agent from a different class. Preferred two-drug combinations: ACE inhibitor or ARB + CCB, or ACE inhibitor or ARB + thiazide diuretic. Avoid combining ACE inhibitor with ARB (dual renin-angiotensin blockade increases adverse effects without additional BP benefit). Fixed-dose combination pills improve adherence and are preferred when available.
+---
+[ACC/AHA 2023 §4.4] When to Add a Third Agent
+Resistant hypertension is defined as BP above goal on ≥3 agents including a diuretic at optimal doses. Add a mineralocorticoid receptor antagonist (spironolactone 25–50 mg/day) as the preferred fourth agent — trials show 22 mmHg reduction in this population. Consider secondary hypertension workup (primary aldosteronism, renal artery stenosis, sleep apnea, pheochromocytoma) in truly resistant cases. Refer to hypertension specialist if BP remains uncontrolled on 4 agents.
+---
+[ACC/AHA 2023 §5.1] BP Targets — General Population
+The universal target for most hypertensive adults is <130/80 mmHg. This target applies regardless of age in patients who can tolerate therapy. Evidence from SPRINT trial supports SBP <120 mmHg reducing cardiovascular events by 25%, though this intensive target requires careful monitoring for adverse effects including acute kidney injury and hypotension.
+---
+[ACC/AHA 2023 §5.2] BP Targets — Older Adults (≥65 years)
+For community-dwelling adults ≥65 years without significant comorbidity, target SBP <130 mmHg is recommended. For older patients with substantial comorbidities, functional limitations, or limited life expectancy, individualize the target. Orthostatic hypotension should be checked at each visit; a drop of >20 mmHg systolic or >10 mmHg diastolic on standing warrants medication adjustment. Avoid overly aggressive titration in frail elderly.
+---
+[ACC/AHA 2023 §5.3] BP Targets — Diabetes and CKD
+For patients with diabetes mellitus, target BP <130/80 mmHg is recommended to reduce both cardiovascular and microvascular (nephropathy, retinopathy) risk. For CKD patients with proteinuria ≥300 mg/day, target <130/80 mmHg with ACE inhibitor or ARB as first-line agent. For CKD without proteinuria, standard target <130/80 mmHg applies with any first-line agent appropriate to comorbidities.
+---
+[ACC/AHA 2023 §6.1] Hypertensive Urgency and Emergency
+Hypertensive urgency: SBP >180 or DBP >120 without acute target organ damage. Oral agents (oral labetalol, oral clonidine, oral captopril) can be used; goal is reduction by 25% over 24–48 hours. Hypertensive emergency: same BP levels WITH acute organ damage (stroke, MI, aortic dissection, hypertensive encephalopathy, acute pulmonary edema, acute kidney injury). Requires IV therapy in ICU; reduce MAP by no more than 25% in first hour to avoid ischemia.
+---
+[ACC/AHA 2023 §7.1] Self-Monitoring and Follow-Up
+Home blood pressure monitoring (HBPM) is recommended for all hypertensive patients. Validated automated upper-arm devices should be used. Measure BP after 5 minutes rest, twice in morning and twice in evening for 7 days; average of all readings guides clinical decisions. HBPM values are typically 5 mmHg lower than office measurements. Ambulatory blood pressure monitoring (ABPM) is the gold standard to rule out white-coat hypertension and masked hypertension.

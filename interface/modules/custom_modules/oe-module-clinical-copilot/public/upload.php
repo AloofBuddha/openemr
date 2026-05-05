@@ -160,8 +160,57 @@ if ($leaked !== '') {
     error_log('[CopilotUpload] Unexpected output before success JSON: ' . substr($leaked, 0, 200));
 }
 
+// Detect doc_type — caller may pass explicitly; otherwise default based on mime.
+$docTypeRaw    = filter_input(INPUT_POST, 'doc_type', FILTER_SANITIZE_SPECIAL_CHARS) ?: '';
+$allowedTypes  = ['lab_pdf', 'intake_form'];
+$docType       = in_array($docTypeRaw, $allowedTypes, true) ? $docTypeRaw : 'lab_pdf';
+
+// Forward the stored file to the Python sidecar for text extraction.
+$extractionResult = null;
+$sidecarUrl = 'http://127.0.0.1:8400/ingest';
+$payload = json_encode([
+    'patient_id'      => $pid,
+    'openemr_doc_id'  => $newId,
+    'doc_type'        => $docType,
+    'file_bytes_b64'  => base64_encode((string) file_get_contents($destPath)),
+    'mimetype'        => $mime,
+]);
+
+$ch = curl_init($sidecarUrl);
+if ($ch !== false) {
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => $payload,
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_CONNECTTIMEOUT => 5,
+    ]);
+
+    $sidecarBody = curl_exec($ch);
+    $httpCode    = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError   = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlError !== '') {
+        error_log('[CopilotUpload] Sidecar curl error: ' . $curlError);
+    } elseif ($httpCode === 200 && is_string($sidecarBody)) {
+        $decoded = json_decode($sidecarBody, true);
+        if (is_array($decoded)) {
+            $extractionResult = $decoded;
+        } else {
+            error_log('[CopilotUpload] Sidecar returned non-JSON body (HTTP 200)');
+        }
+    } else {
+        error_log('[CopilotUpload] Sidecar returned HTTP ' . $httpCode);
+    }
+} else {
+    error_log('[CopilotUpload] curl_init failed for sidecar');
+}
+
 echo json_encode([
-    'id'   => $newId,
-    'name' => $safeName,
-    'date' => $now,
+    'id'         => $newId,
+    'name'       => $safeName,
+    'date'       => $now,
+    'extraction' => $extractionResult,
 ]);

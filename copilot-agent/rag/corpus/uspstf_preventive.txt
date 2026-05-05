@@ -1,0 +1,44 @@
+[USPSTF 2023 §CRC.1] Colorectal Cancer Screening — Recommendation
+The USPSTF recommends screening for colorectal cancer in all adults aged 45–75 years (Grade B recommendation). For adults aged 76–85, screening is an individual decision based on patient health, prior screening history, and preferences. Screening modalities include: annual high-sensitivity guaiac fecal occult blood test (gFOBT), annual fecal immunochemical test (FIT), FIT-DNA every 1–3 years, CT colonography every 5 years, flexible sigmoidoscopy every 5 years, flexible sigmoidoscopy every 10 years + annual FIT, or colonoscopy every 10 years.
+---
+[USPSTF 2023 §CRC.2] Colorectal Cancer Screening — High-Risk Populations
+Average-risk screening schedules do not apply to high-risk individuals. Patients with a first-degree relative with CRC or advanced adenoma before age 60: begin colonoscopy at age 40 or 10 years before the youngest affected relative's diagnosis, repeat every 5 years. Patients with Lynch syndrome: colonoscopy every 1–2 years starting at age 20–25. Patients with familial adenomatous polyposis (FAP): annual flexible sigmoidoscopy starting at puberty. Patients with IBD (Crohn's or UC involving colon): colonoscopy with dysplasia surveillance per gastroenterology protocol.
+---
+[USPSTF 2021 §BC.1] Breast Cancer Screening — Mammography
+The USPSTF recommends biennial screening mammography for women aged 40–74 years (Grade B for ages 40–74 as of 2024 update). For women with a personal history of breast cancer or known BRCA1/BRCA2 pathogenic variants, standard USPSTF schedules do not apply — follow high-risk surveillance protocols with annual mammography and MRI. Dense breast tissue is an independent risk factor; discuss supplemental screening options (ultrasound, MRI) with patients informed of their density results.
+---
+[USPSTF 2021 §BC.2] Breast Cancer — Risk Assessment and Chemoprevention
+Clinicians should offer risk assessment to women aged ≥35 at increased risk for breast cancer. Use validated tools (Tyrer-Cuzick, Gail model) to estimate 5-year and lifetime risk. Women with ≥3% 5-year risk should be offered risk-reducing medications: tamoxifen, raloxifene, or aromatase inhibitors. These reduce incidence by ~50% in high-risk women. BRCA1/BRCA2 testing is recommended for women with a family history suggesting hereditary breast/ovarian cancer syndrome.
+---
+[USPSTF 2018 §CC.1] Cervical Cancer Screening — Pap and HPV Testing
+The USPSTF recommends: cytology (Pap smear) alone every 3 years for women aged 21–29; cytology alone every 3 years OR high-risk HPV testing alone every 5 years OR cotesting (Pap + HPV) every 5 years for women aged 30–65 (Grade A). Screening is not recommended for women younger than 21, women who have had a hysterectomy with cervix removal and no history of high-grade precancerous lesion or cervical cancer, and women older than 65 who have had adequate prior normal screening.
+---
+[USPSTF 2021 §Lipid.1] Lipid Screening — Cardiovascular Risk Assessment
+The USPSTF recommends using the ACC/AHA Pooled Cohort Equations (PCE) to estimate 10-year ASCVD risk for adults aged 40–75 without known CVD. Fasting or non-fasting lipid panel is appropriate for initial screening. Offer statin use for primary prevention to adults aged 40–75 with: one or more CVD risk factors (dyslipidemia, diabetes, hypertension, or smoking) AND an estimated 10-year CVD event risk ≥10% (Grade B). For 7.5–10% risk, offer statins as an individual decision discussion (Grade C).
+---
+[USPSTF 2021 §DM.1] Diabetes Screening
+The USPSTF recommends screening for prediabetes and type 2 diabetes in adults aged 35–70 who have overweight (BMI ≥25) or obesity (BMI ≥30) (Grade B). Use fasting plasma glucose, 2-hour plasma glucose after 75g oral glucose tolerance test, or hemoglobin A1C for screening. Rescreening interval: every 3 years for those with normal results and stable BMI. For patients who screen positive for prediabetes, refer to or provide an intensive behavioral counseling intervention to prevent progression to type 2 diabetes.
+---
+[USPSTF 2021 §DM.2] Gestational Diabetes Screening
+The USPSTF recommends screening for gestational diabetes mellitus (GDM) in asymptomatic pregnant women after 24 weeks of gestation (Grade B). Initial screening with 50g non-fasting glucose challenge test (GCT); if 1-hour glucose ≥140 mg/dL, follow with 3-hour 100g OGTT (Carpenter-Coustan or NDDG criteria) or 2-hour 75g OGTT (IADPSG criteria). GDM increases risk of macrosomia, cesarean delivery, neonatal hypoglycemia, and maternal progression to type 2 diabetes (50% within 10 years).
+---
+[USPSTF 2021 §BP.1] Blood Pressure Screening in Adults
+The USPSTF recommends screening for hypertension in adults aged 18 years or older (Grade A). Measure blood pressure in all adults at routine clinical visits. For adults aged ≥18 with BP in normal range, the optimal rescreening interval is unclear; clinical judgment applies. Abnormal in-office readings should be confirmed with ambulatory or home BP monitoring before diagnosing hypertension. Annual screening is recommended for adults with elevated BP (120–129/<80) or at increased risk.
+---
+[USPSTF 2023 §Dep.1] Depression Screening in Adults
+The USPSTF recommends screening for depression in the general adult population, including pregnant and postpartum women (Grade B). Adequate systems must be in place to ensure accurate diagnosis, effective treatment, and appropriate follow-up. Recommended tools: PHQ-2 as initial screen; PHQ-9 if PHQ-2 score ≥3. For pregnant/postpartum women, Edinburgh Postnatal Depression Scale (EPDS) is also validated. Positive screens require follow-up diagnostic evaluation and treatment access.
+---
+[USPSTF 2023 §Dep.2] Depression Screening in Adolescents
+The USPSTF recommends screening for major depressive disorder (MDD) in adolescents aged 12–18 years (Grade B). Use PHQ-A (adolescent version of PHQ-9) or Patient Health Questionnaire for Adolescents. Primary care practices should have protocols for follow-up care including referral to behavioral health services. Screen at every well-child visit for adolescents. Assess suicide risk in all positive screens. Pediatric Symptom Checklist (PSC-17) can also identify behavioral and emotional problems broadly.
+---
+[USPSTF 2022 §Obesity.1] Obesity Counseling and Intervention
+The USPSTF recommends offering or referring adults with a BMI ≥30 to intensive, multicomponent behavioral interventions (Grade B). Effective programs include: ≥12 sessions in the first year, dietary counseling, physical activity support, and behavioral change strategies. Clinically significant weight loss (≥5% body weight) improves glucose, BP, and lipid profiles and reduces T2DM risk. Brief counseling alone in primary care has limited impact; referral to structured programs (CDC-recognized DPP, commercial programs) is preferred.
+---
+[USPSTF 2019 §Lung.1] Lung Cancer Screening
+The USPSTF recommends annual low-dose CT (LDCT) screening for lung cancer in adults aged 50–80 who have a 20 pack-year smoking history and currently smoke or quit within the past 15 years (Grade B). Screening should be discontinued if patient has not smoked for 15 years or develops a health problem that substantially limits life expectancy or the ability/willingness to have curative lung surgery. Counsel all current smokers on cessation; offer pharmacotherapy (varenicline, NRT, bupropion) and behavioral support.
+---
+[USPSTF 2023 §Osteo.1] Osteoporosis Screening
+The USPSTF recommends screening for osteoporosis with bone measurement testing (DXA scan) to prevent osteoporotic fractures in women aged 65 years or older (Grade B). For postmenopausal women younger than 65 who are at increased risk, use validated fracture risk assessment tools (FRAX, OST) to determine who to screen. The USPSTF found insufficient evidence to recommend screening in men. Treat with calcium, vitamin D, and bisphosphonates (alendronate, risedronate, zoledronic acid) when T-score ≤−2.5.
+---
+[USPSTF 2021 §STI.1] Sexually Transmitted Infection Screening
+HIV screening: all adults and adolescents aged 15–65 at least once; more frequent screening for high-risk individuals (Grade A). Syphilis: screen all persons at increased risk; all pregnant women (Grade A). Hepatitis B: screen asymptomatic adolescents and adults aged 18–79 once (Grade B). Hepatitis C: screen adults aged 18–79 (Grade B); increased risk individuals require repeat screening. Chlamydia/gonorrhea: screen sexually active women ≤24 years and older women at increased risk (Grade B). Offer pre-exposure prophylaxis (PrEP) to persons at high risk for HIV.
