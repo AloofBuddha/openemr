@@ -122,10 +122,47 @@ function sseEmit(string $event, string $data): void
     flush();
 }
 
-// --- Call Python sidecar (buffered — agent returns one answer event) ---
+// --- Build sources map from citations array ---
+function buildSourcesMap(array $citations, int $pid): array
+{
+    $sources = [];
+    foreach ($citations as $cit) {
+        $ref = (string) ($cit['ref'] ?? '');
+        if ($ref === '') {
+            continue;
+        }
+        if (str_starts_with($ref, 'G')) {
+            $sources[$ref] = [
+                'type'   => 'guideline',
+                'label'  => (string) ($cit['source_ref'] ?? "Guideline $ref"),
+                'fields' => array_values(array_filter([
+                    ['key' => 'Source',  'value' => (string) ($cit['source_ref'] ?? '')],
+                    ['key' => 'Excerpt', 'value' => substr((string) ($cit['text'] ?? ''), 0, 250)],
+                ], static fn(array $f): bool => $f['value'] !== '')),
+            ];
+        } else {
+            $docId  = isset($cit['openemr_doc_id']) ? (int) $cit['openemr_doc_id'] : 0;
+            $docUrl = $docId > 0
+                ? "/controller.php?document&retrieve&patient_id={$pid}&document_id={$docId}&as_file=false"
+                : '';
+            $sources[$ref] = [
+                'type'    => 'document',
+                'label'   => ucfirst(str_replace('_', ' ', (string) ($cit['source_type'] ?? 'document'))),
+                'doc_url' => $docUrl,
+                'fields'  => array_values(array_filter([
+                    ['key' => 'Type',   'value' => (string) ($cit['source_type'] ?? 'document')],
+                    ['key' => 'Doc ID', 'value' => $docId > 0 ? (string) $docId : ''],
+                ], static fn(array $f): bool => $f['value'] !== '')),
+            ];
+        }
+    }
+    return $sources;
+}
+
+// --- Stream from Python sidecar, forwarding SSE events in real time ---
 $sidecarHost = getenv('COPILOT_SIDECAR_HOST') ?: '127.0.0.1';
 $sidecarUrl  = "http://{$sidecarHost}:8400/query";
-$payload    = json_encode([
+$payload     = json_encode([
     'patient_id'      => $pid,
     'query'           => $query,
     'patient_context' => $patientContext,
@@ -139,98 +176,90 @@ if ($ch === false) {
     exit;
 }
 
+// State shared with the write callback via references
+$lineBuffer     = '';
+$evtType        = '';
+$sourcesEmitted = false;
+$doneEmitted    = false;
+$gotAnyData     = false;
+
+$writeCallback = function (mixed $ch, string $data) use (
+    &$lineBuffer, &$evtType, &$sourcesEmitted, &$doneEmitted, &$gotAnyData, $pid
+): int {
+    $gotAnyData = true;
+    $lineBuffer .= $data;
+
+    while (($pos = strpos($lineBuffer, "\n")) !== false) {
+        $line       = rtrim(substr($lineBuffer, 0, $pos), "\r");
+        $lineBuffer = substr($lineBuffer, $pos + 1);
+
+        if ($line === '') {
+            $evtType = '';
+            continue;
+        }
+
+        if (str_starts_with($line, 'event: ')) {
+            $evtType = substr($line, 7);
+        } elseif (str_starts_with($line, 'data: ') && $evtType !== '') {
+            $payload = substr($line, 6);
+
+            if ($evtType === 'citations' && !$sourcesEmitted) {
+                $parsed  = json_decode($payload, true);
+                $citList = is_array($parsed) ? (array) ($parsed['citations'] ?? []) : [];
+                $srcMap  = buildSourcesMap($citList, $pid);
+                if ($srcMap !== []) {
+                    sseEmit('sources', json_encode(['sources' => $srcMap]));
+                }
+                $sourcesEmitted = true;
+
+            } elseif ($evtType === 'delta') {
+                // Forward chunk directly — already JSON {text: "..."}
+                sseEmit('delta', $payload);
+
+            } elseif ($evtType === 'done' && !$doneEmitted) {
+                sseEmit('suggestions', json_encode(['suggestions' => [
+                    'What are the treatment recommendations?',
+                    'Check for drug interactions',
+                    'What follow-up is needed?',
+                ]]));
+                sseEmit('done', '{}');
+                $doneEmitted = true;
+            }
+        }
+    }
+
+    return strlen($data);
+};
+
 curl_setopt_array($ch, [
     CURLOPT_POST           => true,
     CURLOPT_POSTFIELDS     => $payload,
     CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_WRITEFUNCTION  => $writeCallback,
     CURLOPT_TIMEOUT        => 120,
     CURLOPT_CONNECTTIMEOUT => 5,
 ]);
 
-$sidecarBody = curl_exec($ch);
-$httpCode    = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-$curlError   = curl_error($ch);
+$ok        = curl_exec($ch);
+$curlError = curl_error($ch);
+$httpCode  = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-if ($curlError !== '' || $sidecarBody === false) {
+if (!$ok || $curlError !== '') {
     error_log('[CopilotAgentQuery] Sidecar curl error: ' . $curlError);
-    sseEmit('error', json_encode(['message' => 'Sidecar connection error. Is the agent service running?']));
+    if (!$doneEmitted) {
+        sseEmit('error', json_encode(['message' => 'Sidecar connection error. Is the agent service running?']));
+    }
     exit;
 }
 if ($httpCode !== 200) {
     error_log('[CopilotAgentQuery] Sidecar returned HTTP ' . $httpCode);
-    sseEmit('error', json_encode(['message' => 'Sidecar error (HTTP ' . $httpCode . ')']));
+    if (!$doneEmitted) {
+        sseEmit('error', json_encode(['message' => 'Sidecar error (HTTP ' . $httpCode . ')']));
+    }
     exit;
 }
-
-// Parse the SSE stream from the sidecar: find the "answer" event
-$currentEvent = '';
-$answerData   = null;
-
-foreach (explode("\n", (string) $sidecarBody) as $line) {
-    $line = trim($line);
-    if (str_starts_with($line, 'event: ')) {
-        $currentEvent = substr($line, 7);
-    } elseif (str_starts_with($line, 'data: ') && $currentEvent === 'answer') {
-        $parsed = json_decode(substr($line, 6), true);
-        if (is_array($parsed) && isset($parsed['text'])) {
-            $answerData = $parsed;
-            break;
-        }
-    }
+if (!$doneEmitted) {
+    error_log('[CopilotAgentQuery] Stream ended without done event');
+    sseEmit('error', json_encode(['message' => 'Agent response incomplete']));
 }
-
-if ($answerData === null) {
-    error_log('[CopilotAgentQuery] Sidecar returned no answer event');
-    sseEmit('error', json_encode(['message' => 'Agent returned no answer']));
-    exit;
-}
-
-$answerText = (string) $answerData['text'];
-$citations  = (array) ($answerData['citations'] ?? []);
-
-// Build sources map: guideline refs (G1, G2…) and doc refs (1, 2…)
-$sources = [];
-foreach ($citations as $cit) {
-    $ref = (string) ($cit['ref'] ?? '');
-    if ($ref === '') {
-        continue;
-    }
-    if (str_starts_with($ref, 'G')) {
-        $sources[$ref] = [
-            'type'   => 'guideline',
-            'label'  => (string) ($cit['source_ref'] ?? "Guideline $ref"),
-            'fields' => array_values(array_filter([
-                ['key' => 'Source',  'value' => (string) ($cit['source_ref'] ?? '')],
-                ['key' => 'Excerpt', 'value' => substr((string) ($cit['text'] ?? ''), 0, 250)],
-            ], static fn(array $f): bool => $f['value'] !== '')),
-        ];
-    } else {
-        $docId  = isset($cit['openemr_doc_id']) ? (int) $cit['openemr_doc_id'] : 0;
-        $docUrl = $docId > 0
-            ? "/controller.php?document&retrieve&patient_id={$pid}&document_id={$docId}&as_file=false"
-            : '';
-        $sources[$ref] = [
-            'type'    => 'document',
-            'label'   => ucfirst(str_replace('_', ' ', (string) ($cit['source_type'] ?? 'document'))),
-            'doc_url' => $docUrl,
-            'fields'  => array_values(array_filter([
-                ['key' => 'Type',   'value' => (string) ($cit['source_type'] ?? 'document')],
-                ['key' => 'Doc ID', 'value' => $docId > 0 ? (string) $docId : ''],
-            ], static fn(array $f): bool => $f['value'] !== '')),
-        ];
-    }
-}
-
-// Emit to the UI in the format CopilotPanel expects
-if ($sources !== []) {
-    sseEmit('sources', json_encode(['sources' => $sources]));
-}
-sseEmit('delta', json_encode(['text' => $answerText]));
-sseEmit('suggestions', json_encode(['suggestions' => [
-    'What are the treatment recommendations?',
-    'Check for drug interactions',
-    'What follow-up is needed?',
-]]));
-sseEmit('done', '{}');

@@ -90,7 +90,10 @@
 }
 
 .copilot-message-assistant {
-  padding: 0;
+  background: #f8f9fb;
+  border-left: 3px solid #d1dce8;
+  border-radius: 0 6px 6px 0;
+  margin: 4px 0 4px 4px;
 }
 
 .copilot-message-user {
@@ -880,11 +883,18 @@
 
 /* ── W2: guideline citation style ────────────────────────────────────────── */
 .copilot-cite-guideline {
-  background: linear-gradient(90deg, #ede9fe 0%, #f5f3ff 100%);
-  border-color: #a78bfa;
+  border-bottom: 2px solid #7c3aed;
   color: #5b21b6;
 }
+.copilot-cite-guideline:hover { background: #ede9fe; }
 .copilot-drawer-type-guideline { background: #ede9fe; color: #5b21b6; }
+
+/* ── Snapshot lab flash on update ─────────────────────────────────────────── */
+@keyframes copilot-flash {
+  0%   { background: #fef9c3; }
+  100% { background: transparent; }
+}
+.copilot-lab-flash { animation: copilot-flash 1.8s ease-out; }
 
 /* ── Modal row for multiple selects ─────────────────────────────────────── */
 .copilot-modal-row {

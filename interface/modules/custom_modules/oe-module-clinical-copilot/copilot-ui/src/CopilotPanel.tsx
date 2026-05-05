@@ -140,6 +140,8 @@ function renderContent(
     text = text.replace(/\[\[[G]?\d+\]\]/g, '').replace(/\[\[\/[G]?\d+\]\]/g, '');
   } else {
     text = replaceCites(text, sources);
+    // Strip any remaining unmatched/unclosed citation tags the regex couldn't pair
+    text = text.replace(/\[\[\/?G?\d+\]\]/g, '');
   }
   return marked.parse(text) as string;
 }
@@ -328,8 +330,13 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
     setSnapshot(prev => prev ? { ...prev, documents: [doc, ...prev.documents] } : prev);
   }, []);
 
+  const [labsFlash, setLabsFlash] = useState(false);
+
   // Push extracted lab results into the snapshot labs array so they appear in the card immediately
   const addLabsToSnapshot = useCallback((labs: SnapshotLab[]) => {
+    setLabsFlash(false);
+    // Force a re-trigger of the animation even if called twice in a row
+    requestAnimationFrame(() => setLabsFlash(true));
     setSnapshot(prev => {
       if (!prev) return prev;
       // Normalize test name for deduplication: lowercase, strip punctuation, collapse spaces
@@ -355,7 +362,7 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
   return {
     messages, sources, activeSource, setActiveSource, snapshot,
     status, send, restart,
-    addDocToSnapshot, addLabsToSnapshot, addDocId, uploadedDocIds,
+    addDocToSnapshot, addLabsToSnapshot, addDocId, uploadedDocIds, labsFlash,
   };
 }
 
@@ -369,7 +376,7 @@ export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId, webRoot, cat
   const {
     messages, sources, activeSource, setActiveSource, snapshot,
     status, send, restart,
-    addDocToSnapshot, addLabsToSnapshot, addDocId, uploadedDocIds,
+    addDocToSnapshot, addLabsToSnapshot, addDocId, uploadedDocIds, labsFlash,
   } = useCopilotChat(pid, apiUrl, csrfToken, physicianId);
 
   const uploadUrl = apiUrl.replace(/chat\.php([^/]*)$/, `upload.php?pid=${pid}&site=default`);
@@ -512,6 +519,7 @@ export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId, webRoot, cat
               onOpenUpload={() => setUploadOpen(true)}
               webRoot={webRoot}
               pid={pid}
+              labsFlash={labsFlash}
             />
           )}
           {chatMessages}
@@ -751,13 +759,14 @@ function SourceDrawer({ source, onClose, width }: {
 
 const LAB_FLAG_ORDER: Record<string, number> = { H: 0, '': 1, L: 2 };
 
-function PatientSnapshot({ snapshot, compact, onOpenSource, onOpenUpload, webRoot, pid }: {
+function PatientSnapshot({ snapshot, compact, onOpenSource, onOpenUpload, webRoot, pid, labsFlash }: {
   snapshot: Snapshot;
   compact: boolean;
   onOpenSource?: (src: CiteSource) => void;
   onOpenUpload: () => void;
   webRoot: string;
   pid: number;
+  labsFlash?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const { patient, appointment, problems, medications, allergies, labs, documents } = snapshot;
@@ -883,7 +892,7 @@ function PatientSnapshot({ snapshot, compact, onOpenSource, onOpenUpload, webRoo
         </div>
 
         {sortedLabs.length > 0 && (
-          <div className="copilot-snapshot-row">
+          <div className={`copilot-snapshot-row${labsFlash ? ' copilot-lab-flash' : ''}`}>
             <span className="copilot-snapshot-label copilot-label-lab">Labs</span>
             <div className="copilot-snapshot-chips">
               {sortedLabs.map((l, i) => {

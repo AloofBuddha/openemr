@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -153,16 +154,22 @@ async def query(req: QueryRequest):
         try:
             result = await graph.ainvoke(state)
             answer = result.get("answer") or "I was unable to generate an answer."
-            routing_log = result.get("routing_log", [])
             citations = result.get("citations", [])
         except Exception:
             logger.exception("Graph invocation failed for patient_id=%d", req.patient_id)
             answer = "An internal error occurred while processing your query."
-            routing_log = []
             citations = []
 
-        payload = json.dumps({"text": answer, "routing_log": routing_log, "citations": citations})
-        yield f"event: answer\ndata: {payload}\n\n"
+        # Emit citations metadata first so PHP can build the sources map
+        yield f"event: citations\ndata: {json.dumps({'citations': citations})}\n\n"
+
+        # Stream answer text in chunks so the browser gets progressive rendering
+        CHUNK = 12
+        DELAY = 0.015  # 15 ms → ~67 chunks/sec, readable streaming speed
+        for i in range(0, len(answer), CHUNK):
+            yield f"event: delta\ndata: {json.dumps({'text': answer[i:i + CHUNK]})}\n\n"
+            await asyncio.sleep(DELAY)
+
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
