@@ -441,6 +441,7 @@ export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId, webRoot, cat
         uploadUrl={uploadUrl}
         csrfToken={csrfToken}
         categories={categories}
+        pid={pid}
         onUploaded={doc => { addDocToSnapshot(doc); }}
       />
     </div>
@@ -828,12 +829,13 @@ interface UploadedFile {
   error?: string;
 }
 
-function UploadModal({ open, onOpenChange, uploadUrl, csrfToken, categories, onUploaded }: {
+function UploadModal({ open, onOpenChange, uploadUrl, csrfToken, categories, pid, onUploaded }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   uploadUrl: string;
   csrfToken: string;
   categories: DocCategory[];
+  pid: number;
   onUploaded: (doc: SnapshotDoc) => void;
 }) {
   const [files, setFiles]         = useState<UploadedFile[]>([]);
@@ -860,6 +862,7 @@ function UploadModal({ open, onOpenChange, uploadUrl, csrfToken, categories, onU
     try {
       const fd = new FormData();
       fd.append('file', file);
+      fd.append('pid', String(pid));
       fd.append('csrf_token_form', csrfToken);
       fd.append('category_id', String(categoryId));
 
