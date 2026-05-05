@@ -16,9 +16,6 @@ class UnauthorizedPatientAccessException extends \RuntimeException {}
 
 class PatientAccessGuard
 {
-    // Frozen for demo — matches demo data loaded for this date
-    private const DEMO_DATE = '2026-04-28';
-
     /**
      * Assert the physician has a legitimate care relationship with this patient.
      * Checks: (1) prior encounter, OR (2) on today's schedule.
@@ -49,7 +46,7 @@ class PatientAccessGuard
         $result = sqlQuery(
             "SELECT 1 FROM openemr_postcalendar_events
              WHERE pc_pid = ? AND pc_aid = ? AND pc_eventDate = ? LIMIT 1",
-            [$patientId, $physicianId, self::DEMO_DATE]
+            [$patientId, $physicianId, date('Y-m-d')]
         );
         return !empty($result);
     }

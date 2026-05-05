@@ -2,14 +2,23 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { CopilotPanel } from './CopilotPanel';
 
+type DocCategory = { id: number; name: string };
+
 declare global {
   interface Window {
-    copilotInit: (pid: number, apiUrl: string, csrfToken: string, physicianId: number) => void;
+    copilotInit: (
+      pid: number,
+      apiUrl: string,
+      csrfToken: string,
+      physicianId: number,
+      webRoot: string,
+      categories: DocCategory[],
+    ) => void;
   }
 }
 
-window.copilotInit = (pid: number, apiUrl: string, csrfToken: string, physicianId: number) => {
-const widget = document.getElementById('copilot-widget');
+window.copilotInit = (pid, apiUrl, csrfToken, physicianId, webRoot, categories) => {
+  const widget = document.getElementById('copilot-widget');
   if (!widget) return;
 
   // Move to top of .main div (full-width, above two-column card layout)
@@ -20,6 +29,13 @@ const widget = document.getElementById('copilot-widget');
 
   widget.style.display = '';
   createRoot(widget).render(
-    <CopilotPanel pid={pid} apiUrl={apiUrl} csrfToken={csrfToken} physicianId={physicianId} />
+    <CopilotPanel
+      pid={pid}
+      apiUrl={apiUrl}
+      csrfToken={csrfToken}
+      physicianId={physicianId}
+      webRoot={webRoot}
+      categories={categories}
+    />
   );
 };

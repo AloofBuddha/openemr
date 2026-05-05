@@ -16,8 +16,6 @@ namespace OpenEMR\Modules\ClinicalCopilot\Agent\Tools;
 
 class PatientBriefTool
 {
-    // Frozen for demo — keeps "today's appointments" stable regardless of calendar date
-    private const DEMO_DATE = '2026-04-28';
 
     /**
      * Returns structured patient context for LLM consumption.
@@ -39,8 +37,10 @@ class PatientBriefTool
         $encounter    = $this->fetchLastEncounter($patientId);
         $medications  = $this->fetchActiveMedications($patientId);
         $labs         = $this->fetchRecentLabs($patientId);
+        $allergies    = $this->fetchAllergies($patientId);
+        $problems     = $this->fetchProblems($patientId);
 
-        $data = compact('demographics', 'appointment', 'encounter', 'medications', 'labs');
+        $data = compact('demographics', 'appointment', 'encounter', 'medications', 'labs', 'allergies', 'problems');
         $dataHash = hash('sha256', json_encode($data) ?: '');
 
         return [
@@ -49,6 +49,8 @@ class PatientBriefTool
             'last_encounter'     => $encounter,
             'active_medications' => $medications,
             'recent_labs'        => $labs,
+            'allergies'          => $allergies,
+            'problems'           => $problems,
             'data_hash'          => $dataHash,
         ];
     }
@@ -90,9 +92,9 @@ class PatientBriefTool
         $row = sqlQuery(
             "SELECT pc_eid, pc_eventDate, pc_startTime, pc_title, pc_hometext
              FROM openemr_postcalendar_events
-             WHERE pc_pid = ? AND pc_aid = ? AND pc_eventDate = ?
+             WHERE pc_pid = ? AND pc_eventDate = ?
              ORDER BY pc_startTime ASC LIMIT 1",
-            [$patientId, $physicianId, self::DEMO_DATE]
+            [$patientId, date('Y-m-d')]
         );
         if (empty($row)) {
             return null;
@@ -155,6 +157,46 @@ class PatientBriefTool
             ];
         }
         return $meds;
+    }
+
+    private function fetchAllergies(int $patientId): array
+    {
+        $results = sqlStatement(
+            "SELECT title, extrainfo, comments
+             FROM lists
+             WHERE pid = ? AND type = 'allergy' AND activity = 1
+             ORDER BY title ASC",
+            [$patientId]
+        );
+        $allergies = [];
+        while ($row = sqlFetchArray($results)) {
+            $allergies[] = [
+                'title'    => $row['title'] ?? '',
+                'reaction' => $row['extrainfo'] ?? '',
+                'severity' => $row['comments'] ?? '',
+            ];
+        }
+        return $allergies;
+    }
+
+    private function fetchProblems(int $patientId): array
+    {
+        $results = sqlStatement(
+            "SELECT title, diagnosis, begdate
+             FROM lists
+             WHERE pid = ? AND type = 'medical_problem' AND activity = 1
+             ORDER BY title ASC",
+            [$patientId]
+        );
+        $problems = [];
+        while ($row = sqlFetchArray($results)) {
+            $problems[] = [
+                'title'   => $row['title'] ?? '',
+                'icd10'   => $row['diagnosis'] ?? '',
+                'since'   => $row['begdate'] ?? '',
+            ];
+        }
+        return $problems;
     }
 
     private function fetchRecentLabs(int $patientId): array

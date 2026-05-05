@@ -65,6 +65,27 @@ VALUES
 ON DUPLICATE KEY UPDATE form_id=VALUES(form_id);
 
 -- -------------------------------------------------------------------------
+-- Vitals (BP, weight, pulse — consistent with SOAP objective notes)
+-- Height: 64 in (5'4"). BP trends show progressive control on Lisinopril.
+-- -------------------------------------------------------------------------
+INSERT INTO form_vitals (id, pid, date, user, authorized, activity, bps, bpd, height, weight, pulse, temperature, BMI, oxygen_saturation)
+VALUES
+(400, 20, '2024-06-10 09:00:00', 'sarah.chen', 1, 1, '138', '86', 64.000000, 172.000000, 74.000000, 98.600000, 29.520000, 98.00),
+(401, 20, '2024-12-04 09:30:00', 'sarah.chen', 1, 1, '142', '88', 64.000000, 174.000000, 76.000000, 98.400000, 29.860000, 98.00),
+(402, 20, '2025-06-18 09:00:00', 'sarah.chen', 1, 1, '146', '90', 64.000000, 178.000000, 80.000000, 98.600000, 30.540000, 97.00),
+(403, 20, '2025-12-10 09:30:00', 'sarah.chen', 1, 1, '144', '88', 64.000000, 176.000000, 78.000000, 98.400000, 30.200000, 98.00)
+ON DUPLICATE KEY UPDATE bps=VALUES(bps), bpd=VALUES(bpd), weight=VALUES(weight);
+
+-- Link vitals to encounters via forms table
+INSERT INTO forms (id, date, encounter, form_name, form_id, pid, user, groupname, authorized, deleted, formdir)
+VALUES
+(1160, '2024-06-10 09:00:00', 150, 'Vitals', 400, 20, 'sarah.chen', 'Default', 1, 0, 'vitals'),
+(1161, '2024-12-04 09:30:00', 151, 'Vitals', 401, 20, 'sarah.chen', 'Default', 1, 0, 'vitals'),
+(1162, '2025-06-18 09:00:00', 152, 'Vitals', 402, 20, 'sarah.chen', 'Default', 1, 0, 'vitals'),
+(1163, '2025-12-10 09:30:00', 153, 'Vitals', 403, 20, 'sarah.chen', 'Default', 1, 0, 'vitals')
+ON DUPLICATE KEY UPDATE form_id=VALUES(form_id);
+
+-- -------------------------------------------------------------------------
 -- Medications (insert only if none exist for pid=20 to stay idempotent)
 -- -------------------------------------------------------------------------
 INSERT INTO prescriptions (patient_id, provider_id, encounter, drug, drug_id,
@@ -89,8 +110,9 @@ SELECT 20, 10, 150, 'Aspirin',      0, '243670', '81mg QD',         30, '2024-06
 WHERE NOT EXISTS (SELECT 1 FROM prescriptions WHERE patient_id=20 AND drug='Aspirin');
 
 -- -------------------------------------------------------------------------
--- Allergies
+-- Allergies (idempotent — delete existing before reinserting)
 -- -------------------------------------------------------------------------
+DELETE FROM lists WHERE pid=20 AND type='allergy';
 INSERT INTO lists (pid, type, title, begdate, enddate, returndate, occurrence, classification,
     referredby, extrainfo, diagnosis, activity, comments, outcome, groupname, user, date)
 VALUES
@@ -99,8 +121,9 @@ VALUES
 (20, 'allergy', 'Shellfish/iodine?', NULL,         NULL, NULL, 0, NULL, NULL, 'Itchy? Uncertain', NULL,               1, 'Unclear — verify',  0, 'Default', 'sarah.chen', NOW());
 
 -- -------------------------------------------------------------------------
--- Problem list
+-- Problem list (idempotent — delete existing before reinserting)
 -- -------------------------------------------------------------------------
+DELETE FROM lists WHERE pid=20 AND type='medical_problem';
 INSERT INTO lists (pid, type, title, begdate, enddate, returndate, occurrence, classification,
     referredby, extrainfo, diagnosis, activity, comments, outcome, groupname, user, date)
 VALUES
@@ -133,6 +156,15 @@ UPDATE procedure_report SET date_collected='2024-12-04' WHERE procedure_report_i
 UPDATE procedure_report SET date_collected='2025-06-18' WHERE procedure_report_id=302;
 UPDATE procedure_report SET date_collected='2025-12-10' WHERE procedure_report_id=303;
 
+-- procedure_order_code: required for labdata_fragment.php JOIN to display labs in patient summary
+INSERT INTO procedure_order_code (procedure_order_id, procedure_order_seq, procedure_code, procedure_name, procedure_source)
+VALUES
+(300, 1, 'DIAB-PANEL',  'Diabetes Monitoring Panel (A1c, Fasting Glucose)', '1'),
+(301, 1, 'LIPID-A1C',   'Lipid Panel with HbA1c (Comprehensive)',           '1'),
+(302, 1, 'DIAB-PANEL',  'Diabetes Monitoring Panel (A1c, Fasting Glucose)', '1'),
+(303, 1, 'CMP-LIPID',   'Comprehensive Metabolic & Lipid Panel',             '1')
+ON DUPLICATE KEY UPDATE procedure_name=VALUES(procedure_name);
+
 INSERT INTO procedure_result (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
 VALUES
 (300, '4548-4',  'Hemoglobin A1c',    '7.1', '%',     '4.0-5.6', 'H', 'final', '2024-06-12'),
@@ -162,7 +194,7 @@ INSERT INTO openemr_postcalendar_events
      pc_eventDate, pc_startTime, pc_endTime, pc_duration, pc_alldayevent,
      pc_apptstatus, pc_prefcatid, pc_multiple, pc_sharing, pc_facility, pc_eventstatus)
 VALUES
-(5, '10', '20', 'New patient follow-up',    CONCAT(CURDATE(),' 08:55:00'), 'Chest tightness on exertion x3 weeks; lipid panel + intake form uploaded by front desk', CURDATE(), '08:55:00', '09:15:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '20', 'Established patient follow-up — chest tightness, lipid review', CONCAT(CURDATE(),' 08:55:00'), 'Chest tightness on exertion x3 weeks; lipid panel + intake form uploaded by front desk', CURDATE(), '08:55:00', '09:15:00', 1200, 0, '@', 0, 0, 1, 3, 1),
 (5, '10', '4',  'Diabetes follow-up',       CONCAT(CURDATE(),' 09:20:00'), 'A1C recheck post-Jardiance addition',              CURDATE(), '09:20:00', '09:40:00', 1200, 0, '@', 0, 0, 1, 3, 1),
 (5, '10', '7',  'Quarterly chronic review', CONCAT(CURDATE(),' 09:45:00'), 'BP elevated at last visit; BMP + INR',             CURDATE(), '09:45:00', '10:05:00', 1200, 0, '@', 0, 0, 1, 3, 1),
 (5, '10', '1',  'Hypertension follow-up',   CONCAT(CURDATE(),' 10:10:00'), 'BP recheck 6 wks post Lisinopril uptitration',     CURDATE(), '10:10:00', '10:30:00', 1200, 0, '@', 0, 0, 1, 3, 1),
