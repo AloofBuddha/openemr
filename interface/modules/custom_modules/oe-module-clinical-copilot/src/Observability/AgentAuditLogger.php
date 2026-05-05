@@ -39,7 +39,7 @@ class AgentAuditLogger
             [
                 $sessionId,
                 $physicianId,
-                (string) $patientId,
+                $this->resolvePatientUuid($patientId),
                 $queryText,
                 json_encode($toolsCalled),
                 $model,
@@ -50,5 +50,67 @@ class AgentAuditLogger
                 $flaggedClaims,
             ]
         );
+    }
+
+    public function logDenied(int $physicianId, int $patientId, string $context): void
+    {
+        $sessionId = session_id() ?: '';
+        sqlStatement(
+            "INSERT INTO copilot_audit_log
+                (session_id, physician_id, patient_uuid, query_text, tools_called,
+                 llm_model, input_tokens, output_tokens, total_ms, verified,
+                 flagged_claims, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())",
+            [
+                $sessionId,
+                $physicianId,
+                $this->resolvePatientUuid($patientId),
+                "AUTH_DENIED:{$context}",
+                '[]',
+                '',
+                0,
+                0,
+                0,
+                0,
+                0,
+            ]
+        );
+    }
+
+    public function logUpload(int $physicianId, int $patientId, int $docId, string $filename, int $totalMs): void
+    {
+        $sessionId = session_id() ?: '';
+        sqlStatement(
+            "INSERT INTO copilot_audit_log
+                (session_id, physician_id, patient_uuid, query_text, tools_called,
+                 llm_model, input_tokens, output_tokens, total_ms, verified,
+                 flagged_claims, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())",
+            [
+                $sessionId,
+                $physicianId,
+                $this->resolvePatientUuid($patientId),
+                "DOCUMENT_UPLOAD:doc_id={$docId};name={$filename}",
+                '[]',
+                '',
+                0,
+                0,
+                $totalMs,
+                1,
+                0,
+            ]
+        );
+    }
+
+    private function resolvePatientUuid(int $patientId): string
+    {
+        $row = sqlQuery(
+            "SELECT uuid FROM patient_data WHERE pid = ? LIMIT 1",
+            [$patientId]
+        );
+        if (!empty($row['uuid'])) {
+            return $row['uuid'];
+        }
+        return (string) $patientId;
     }
 }

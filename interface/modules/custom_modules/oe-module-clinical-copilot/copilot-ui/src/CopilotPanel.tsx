@@ -728,37 +728,39 @@ function PatientSnapshot({ snapshot, compact, onOpenSource, onOpenUpload, webRoo
           </div>
         )}
 
-        {/* Allergies */}
-        {allergies.length > 0 && (
-          <div className="copilot-snapshot-row">
-            <span className="copilot-snapshot-label copilot-label-allergy">Allergies</span>
-            <div className="copilot-snapshot-chips">
-              {allergies.map((a, i) => (
-                <span key={i}
-                  className="copilot-snapshot-chip copilot-chip-allergy copilot-chip-clickable"
-                  onClick={() => chipClick(makeAllergySource(a))}>
-                  {a.title}
-                </span>
-              ))}
-            </div>
+        {/* Allergies — always show; "None documented" is clinically distinct from row being absent */}
+        <div className="copilot-snapshot-row">
+          <span className="copilot-snapshot-label copilot-label-allergy">Allergies</span>
+          <div className="copilot-snapshot-chips">
+            {allergies.length > 0
+              ? allergies.map((a, i) => (
+                  <span key={i}
+                    className="copilot-snapshot-chip copilot-chip-allergy copilot-chip-clickable"
+                    onClick={() => chipClick(makeAllergySource(a))}>
+                    {a.title}
+                  </span>
+                ))
+              : <span className="copilot-snapshot-chip copilot-chip-none">None documented</span>
+            }
           </div>
-        )}
+        </div>
 
-        {/* Medications */}
-        {medications.length > 0 && (
-          <div className="copilot-snapshot-row">
-            <span className="copilot-snapshot-label copilot-label-med">Meds</span>
-            <div className="copilot-snapshot-chips">
-              {medications.map((m, i) => (
-                <span key={i}
-                  className="copilot-snapshot-chip copilot-chip-med copilot-chip-clickable"
-                  onClick={() => chipClick(makeMedSource(m))}>
-                  {m.drug} {m.dosage}
-                </span>
-              ))}
-            </div>
+        {/* Medications — always show */}
+        <div className="copilot-snapshot-row">
+          <span className="copilot-snapshot-label copilot-label-med">Meds</span>
+          <div className="copilot-snapshot-chips">
+            {medications.length > 0
+              ? medications.map((m, i) => (
+                  <span key={i}
+                    className="copilot-snapshot-chip copilot-chip-med copilot-chip-clickable"
+                    onClick={() => chipClick(makeMedSource(m))}>
+                    {m.drug} {m.dosage}
+                  </span>
+                ))
+              : <span className="copilot-snapshot-chip copilot-chip-none">None on file</span>
+            }
           </div>
-        )}
+        </div>
 
         {/* Labs */}
         {sortedLabs.length > 0 && (

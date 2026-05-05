@@ -14,8 +14,11 @@ declare(strict_types=1);
 
 namespace OpenEMR\Modules\ClinicalCopilot\Agent\Tools;
 
+use OpenEMR\Modules\ClinicalCopilot\Authorization\PatientAccessGuard;
+
 class PatientBriefTool
 {
+    public function __construct(private readonly PatientAccessGuard $accessGuard) {}
 
     /**
      * Returns structured patient context for LLM consumption.
@@ -32,6 +35,8 @@ class PatientBriefTool
      */
     public function gather(int $patientId, int $physicianId): array
     {
+        $this->accessGuard->assertAccess($physicianId, $patientId);
+
         $demographics = $this->fetchDemographics($patientId);
         $appointment  = $this->fetchTodayAppointment($patientId, $physicianId);
         $encounter    = $this->fetchLastEncounter($patientId);

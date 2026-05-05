@@ -15,6 +15,8 @@ declare(strict_types=1);
 namespace OpenEMR\Modules\ClinicalCopilot\Agent;
 
 use OpenEMR\Modules\ClinicalCopilot\Agent\Tools\PatientBriefTool;
+use OpenEMR\Modules\ClinicalCopilot\Authorization\PatientAccessGuard;
+use OpenEMR\Modules\ClinicalCopilot\Authorization\UnauthorizedPatientAccessException;
 use OpenEMR\Modules\ClinicalCopilot\Observability\AgentAuditLogger;
 
 class Orchestrator
@@ -78,6 +80,7 @@ PROMPT;
     public function __construct(
         private readonly PatientBriefTool $briefTool,
         private readonly AgentAuditLogger $auditLogger,
+        private readonly PatientAccessGuard $accessGuard,
     ) {}
 
     /**
@@ -87,6 +90,13 @@ PROMPT;
      */
     public function streamChat(int $patientId, int $physicianId, array $messages): void
     {
+        try {
+            $this->accessGuard->assertAccess($physicianId, $patientId);
+        } catch (UnauthorizedPatientAccessException) {
+            $this->emitEvent('error', ['message' => 'Access denied.']);
+            return;
+        }
+
         $startMs = (int) (microtime(true) * 1000);
         $apiKey  = $_ENV['ANTHROPIC_API_KEY'] ?? getenv('ANTHROPIC_API_KEY') ?: '';
 
@@ -122,6 +132,11 @@ PROMPT;
             ];
         }
 
+        if (empty($context['patient_data']['demographics'])) {
+            $this->emitEvent('error', ['message' => 'Patient record not found or data unavailable.']);
+            return;
+        }
+
         // Snapshot fires first — frontend renders the patient card immediately, before LLM starts
         $this->emitEvent('snapshot', $this->buildSnapshot($context['patient_data']));
 
@@ -154,8 +169,8 @@ PROMPT;
                 $this->emitEvent('delta', ['text' => $text]);
             },
             onUsage: function (int $in, int $out) use (&$inputTokens, &$outputTokens): void {
-                $inputTokens  = $in;
-                $outputTokens = $out;
+                if ($in > 0) $inputTokens = $in;
+                if ($out > 0) $outputTokens = $out;
             },
         );
 
@@ -177,12 +192,6 @@ PROMPT;
         // Always emit so the client doesn't wait for an event that never arrives
         $this->emitEvent('suggestions', ['suggestions' => $suggestions]);
 
-        // Cache the brief on first turn (store suggestions so cache hits can re-emit them)
-        if ($isBrief && !empty($fullText)) {
-            $cleanText = preg_replace('/\nSUGGESTIONS:\s*\[.*?\]\s*$/s', '', $fullText) ?? $fullText;
-            $this->saveCache($patientId, $physicianId, $context['patient_data'], $cleanText, $context['sources'], $suggestions);
-        }
-
         $totalMs = (int) (microtime(true) * 1000) - $startMs;
 
         $this->auditLogger->log(
@@ -202,40 +211,6 @@ PROMPT;
             'total_ms'      => $totalMs,
             'input_tokens'  => $inputTokens,
             'output_tokens' => $outputTokens,
-        ]);
-    }
-
-    /**
-     * Legacy single-shot brief — used for cache hits without conversation history.
-     */
-    public function streamBrief(int $patientId, int $physicianId, bool $forceRefresh = false): void
-    {
-        $apiKey = $_ENV['ANTHROPIC_API_KEY'] ?? getenv('ANTHROPIC_API_KEY') ?: '';
-
-        if (empty($apiKey)) {
-            $this->emitEvent('error', ['message' => 'ANTHROPIC_API_KEY not configured on this server.']);
-            return;
-        }
-
-        if (!$forceRefresh) {
-            $cached = $this->fetchCache($patientId, $physicianId);
-            if ($cached !== null) {
-                $patientData       = $this->briefTool->gather($patientId, $physicianId);
-                $cachedSources     = json_decode($cached['citation_registry'] ?? '{}', true) ?? [];
-                $cachedSuggestions = json_decode($cached['follow_up_json'] ?? '[]', true);
-                $cachedSuggestions = is_array($cachedSuggestions) ? $cachedSuggestions : [];
-                $this->emitEvent('snapshot',    $this->buildSnapshot($patientData));
-                $this->emitEvent('sources',     ['sources'     => $cachedSources]);
-                $this->emitEvent('cached',      ['text'        => $cached['brief_text']]);
-                $this->emitEvent('suggestions', ['suggestions' => $cachedSuggestions]);
-                $this->emitEvent('done',        ['cached'      => true]);
-                return;
-            }
-        }
-
-        // No cache — streamChat handles fetch, snapshot, and LLM streaming
-        $this->streamChat($patientId, $physicianId, [
-            ['role' => 'user', 'content' => 'Brief me on this patient.'],
         ]);
     }
 
@@ -365,42 +340,59 @@ PROMPT;
 
         // ── Problems ──────────────────────────────────────────────────────────
         $problems = $patientData['problems'] ?? [];
-        if (!empty($problems)) {
-            $problemList = implode('; ', array_map(
-                fn(array $p): string => $p['title'] . ($p['icd10'] ? " ({$p['icd10']})" : ''),
-                $problems
-            ));
+        if (empty($problems)) {
             $sources[(string) $idx] = [
                 'type'      => 'problem',
                 'label'     => 'Active problems',
-                'fields'    => array_map(
-                    fn(array $p): array => ['key' => $p['icd10'] ?: 'dx', 'value' => $p['title']],
-                    $problems
-                ),
+                'fields'    => [['key' => 'Note', 'value' => 'None documented']],
                 'scroll_to' => '#medical_problem_ps_expand',
             ];
-            $lines[] = "[{$idx}] Active problems: {$problemList}";
+            $lines[] = "[{$idx}] Problems: none documented";
             $idx++;
+        } else {
+            foreach ($problems as $prob) {
+                $label = $prob['title'] . ($prob['icd10'] ? " ({$prob['icd10']})" : '');
+                $sources[(string) $idx] = [
+                    'type'      => 'problem',
+                    'label'     => $prob['title'],
+                    'fields'    => $this->compactFields([
+                        ['key' => 'Diagnosis', 'value' => $prob['title']],
+                        ['key' => 'ICD-10',    'value' => $prob['icd10']],
+                        ['key' => 'Since',     'value' => $prob['since']],
+                    ]),
+                    'scroll_to' => '#medical_problem_ps_expand',
+                ];
+                $lines[] = "[{$idx}] Problem: {$label}";
+                $idx++;
+            }
         }
 
         // ── Allergies ─────────────────────────────────────────────────────────
         $allergies = $patientData['allergies'] ?? [];
-        if (!empty($allergies)) {
-            $allergyList = implode('; ', array_map(
-                fn(array $a): string => $a['title'] . ($a['reaction'] ? " → {$a['reaction']}" : ''),
-                $allergies
-            ));
+        if (empty($allergies)) {
             $sources[(string) $idx] = [
                 'type'      => 'allergy',
                 'label'     => 'Allergies',
-                'fields'    => array_map(
-                    fn(array $a): array => ['key' => $a['title'], 'value' => trim(($a['reaction'] ?? '') . ' ' . ($a['severity'] ?? ''))],
-                    $allergies
-                ),
+                'fields'    => [['key' => 'Note', 'value' => 'None documented']],
                 'scroll_to' => '#allergy_ps_expand',
             ];
-            $lines[] = "[{$idx}] Allergies: {$allergyList}";
+            $lines[] = "[{$idx}] Allergies: none documented";
             $idx++;
+        } else {
+            foreach ($allergies as $allergy) {
+                $sources[(string) $idx] = [
+                    'type'      => 'allergy',
+                    'label'     => $allergy['title'],
+                    'fields'    => $this->compactFields([
+                        ['key' => 'Allergen', 'value' => $allergy['title']],
+                        ['key' => 'Reaction', 'value' => $allergy['reaction'] ?? ''],
+                        ['key' => 'Severity', 'value' => $allergy['severity'] ?? ''],
+                    ]),
+                    'scroll_to' => '#allergy_ps_expand',
+                ];
+                $lines[] = "[{$idx}] Allergy: {$allergy['title']}" . (!empty($allergy['reaction']) ? " → {$allergy['reaction']}" : '');
+                $idx++;
+            }
         }
 
         $demo    = $patientData['demographics'];
@@ -562,6 +554,9 @@ TEXT;
                     } elseif ($type === 'message_start') {
                         $usage = $event['message']['usage'] ?? [];
                         $onUsage((int) ($usage['input_tokens'] ?? 0), 0);
+                    } elseif ($type === 'message_delta') {
+                        $usage = $event['usage'] ?? [];
+                        $onUsage(0, (int) ($usage['output_tokens'] ?? 0));
                     }
                 }
                 return strlen($chunk);
@@ -589,63 +584,5 @@ TEXT;
             ob_flush();
         }
         flush();
-    }
-
-    private function fetchCache(int $patientId, int $physicianId): ?array
-    {
-        $row = sqlQuery(
-            "SELECT brief_text, citation_registry, data_snapshot_hash, generated_at
-             FROM copilot_brief_cache
-             WHERE patient_id = ? AND physician_id = ? AND appointment_date = ?
-             ORDER BY generated_at DESC LIMIT 1",
-            [$patientId, $physicianId, date('Y-m-d')]
-        );
-        if (empty($row)) {
-            return null;
-        }
-        $generatedAt = strtotime($row['generated_at'] ?? '');
-        if ($generatedAt && (time() - $generatedAt) > 1800) {
-            return null;
-        }
-        return $row;
-    }
-
-    /**
-     * @param list<string> $suggestions
-     * @param array<string, mixed> $sources
-     * @param array<string, mixed> $patientData
-     */
-    private function saveCache(
-        int $patientId,
-        int $physicianId,
-        array $patientData,
-        string $briefText,
-        array $sources,
-        array $suggestions = [],
-    ): void {
-        $appointmentId = $patientData['today_appointment']['appointment_id'] ?? 0;
-
-        sqlStatement(
-            "INSERT INTO copilot_brief_cache
-                (patient_id, physician_id, appointment_id, appointment_date,
-                 brief_text, follow_up_json, citation_registry, data_snapshot_hash, generated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
-             ON DUPLICATE KEY UPDATE
-                brief_text         = VALUES(brief_text),
-                follow_up_json     = VALUES(follow_up_json),
-                citation_registry  = VALUES(citation_registry),
-                data_snapshot_hash = VALUES(data_snapshot_hash),
-                generated_at       = NOW()",
-            [
-                $patientId,
-                $physicianId,
-                $appointmentId,
-                date('Y-m-d'),
-                $briefText,
-                json_encode(array_values($suggestions)),
-                json_encode($sources),
-                $patientData['data_hash'] ?? '',
-            ]
-        );
     }
 }

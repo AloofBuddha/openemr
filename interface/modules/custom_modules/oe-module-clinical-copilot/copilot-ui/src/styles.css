@@ -586,6 +586,15 @@
 .copilot-chip-lab-n    { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
 .copilot-chip-lab-l    { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
 
+/* Muted placeholder chip for "none documented" / "none on file" states */
+.copilot-snapshot-chip.copilot-chip-none {
+  background: transparent;
+  color: var(--copilot-text-muted, #9ca3af);
+  border: 1px dashed currentColor;
+  cursor: default;
+  font-style: italic;
+}
+
 /* Clickable chip: pointer cursor, subtle dim on hover */
 .copilot-chip-clickable { cursor: pointer; }
 .copilot-chip-clickable:hover { opacity: 0.8; }

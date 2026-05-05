@@ -6,8 +6,7 @@
  * POST params:
  *   pid              (int)    — patient ID
  *   csrf_token_form  (string) — CSRF token
- *   messages         (string) — JSON array of {role, content} objects (optional; omit for legacy single-shot brief)
- *   refresh          (bool)   — force cache bypass (only used when messages is absent)
+ *   messages         (string) — JSON array of {role, content} objects
  *
  * @package   OpenEMR
  * @link      https://www.open-emr.org
@@ -76,9 +75,13 @@ if ($messagesRaw !== null) {
     }
 }
 
+$auditLogger = new AgentAuditLogger();
+$guard = new PatientAccessGuard();
+
 try {
-    (new PatientAccessGuard())->assertAccess($physicianId, $pid);
+    $guard->assertAccess($physicianId, $pid);
 } catch (UnauthorizedPatientAccessException $e) {
+    $auditLogger->logDenied($physicianId, $pid, 'chat');
     http_response_code(403);
     exit('Forbidden');
 }
@@ -93,13 +96,13 @@ while (ob_get_level() > 0) {
 }
 
 $orchestrator = new Orchestrator(
-    new PatientBriefTool(),
-    new AgentAuditLogger(),
+    new PatientBriefTool($guard),
+    $auditLogger,
+    $guard,
 );
 
-if ($messages !== null) {
-    $orchestrator->streamChat($pid, $physicianId, $messages);
-} else {
-    $forceRefresh = filter_input(INPUT_POST, 'refresh', FILTER_VALIDATE_BOOLEAN) === true;
-    $orchestrator->streamBrief($pid, $physicianId, $forceRefresh);
-}
+$orchestrator->streamChat(
+    $pid,
+    $physicianId,
+    $messages ?? [['role' => 'user', 'content' => 'Brief me on this patient.']],
+);

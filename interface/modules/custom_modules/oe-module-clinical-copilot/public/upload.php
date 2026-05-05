@@ -29,12 +29,15 @@ require_once dirname(__FILE__, 5) . '/globals.php';
 // Catch any output so stray PHP warnings don't corrupt the JSON response.
 ob_start();
 
+$startMs = (int) (microtime(true) * 1000);
+
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Common\Session\SessionTracker;
 use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Modules\ClinicalCopilot\Authorization\PatientAccessGuard;
 use OpenEMR\Modules\ClinicalCopilot\Authorization\UnauthorizedPatientAccessException;
+use OpenEMR\Modules\ClinicalCopilot\Observability\AgentAuditLogger;
 
 spl_autoload_register(function (string $class): void {
     $prefix = 'OpenEMR\\Modules\\ClinicalCopilot\\';
@@ -74,15 +77,18 @@ try {
     jsonError('CSRF check failed', 403);
 }
 
-$pid = filter_input(INPUT_POST, 'pid', FILTER_VALIDATE_INT)
-    ?? filter_input(INPUT_GET, 'pid', FILTER_VALIDATE_INT);
+$pid = filter_input(INPUT_POST, 'pid', FILTER_VALIDATE_INT);
 if (!$pid || $pid <= 0) {
     jsonError('Invalid pid');
 }
 
+$auditLogger = new AgentAuditLogger();
+$guard = new PatientAccessGuard();
+
 try {
-    (new PatientAccessGuard())->assertAccess($physicianId, $pid);
+    $guard->assertAccess($physicianId, $pid);
 } catch (UnauthorizedPatientAccessException) {
+    $auditLogger->logDenied($physicianId, $pid, 'upload');
     jsonError('Access denied', 403);
 }
 
@@ -142,6 +148,8 @@ try {
         "INSERT INTO categories_to_documents (category_id, document_id) VALUES (?, ?)",
         [$categoryId, $newId]
     );
+    $totalMs = (int) (microtime(true) * 1000) - $startMs;
+    $auditLogger->logUpload($physicianId, (int) $pid, $newId, $safeName, $totalMs);
 } catch (\Throwable $e) {
     error_log('[CopilotUpload] DB insert failed: ' . $e->getMessage());
     jsonError('Database error: could not record document', 500);
