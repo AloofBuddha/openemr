@@ -57,6 +57,15 @@ export interface ExtractionSummary {
     weight?: string | null; height?: string | null; bmi?: string | null;
     temperature?: string | null; oxygen_saturation?: string | null;
   };
+  // additional intake fields
+  past_medical_history?: string[];
+  surgical_history?: string[];
+  social_history?: {
+    tobacco?: string | null;
+    alcohol?: string | null;
+    exercise?: string | null;
+    occupation?: string | null;
+  } | null;
   // other / fallback fields
   detected_type?: string | null;
   summary?: string | null;

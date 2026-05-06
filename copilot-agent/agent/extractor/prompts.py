@@ -106,7 +106,15 @@ Return ONLY valid JSON matching this exact structure — no markdown, no explana
       "source_quote": "string — the exact phrase from the form for this allergy"
     }}
   ],
-  "family_history": ["string"],
+  "past_medical_history": ["string — e.g. 'Type 2 diabetes mellitus', 'Hypertension'"],
+  "surgical_history": ["string — e.g. 'Appendectomy 2005', 'C-section 2010'"],
+  "social_history": {{
+    "tobacco": "string or null — e.g. 'Non-smoker' or 'Smokes 1 ppd x 10 years'",
+    "alcohol": "string or null — e.g. 'Occasional, 1-2 drinks/week'",
+    "exercise": "string or null — e.g. 'Walks 30 min 3x/week'",
+    "occupation": "string or null"
+  }},
+  "family_history": ["string — e.g. 'Father: MI at 61', 'Mother: T2DM'"],
   "extraction_warnings": ["string"]
 }}
 
@@ -115,6 +123,9 @@ Rules:
 - source_quote is the verbatim phrase from the form that this entry came from (used for citation tracking)
 - Use null for any field not clearly stated in the form
 - vitals: extract any vital signs listed on the form; use null for absent fields
+- past_medical_history: list every chronic condition, diagnosis, or health problem reported
+- surgical_history: list every surgery or major procedure reported with year if available
+- social_history: summarise each category in a short phrase; null if not mentioned
 - family_history is a list of plain strings (e.g. "Father: hypertension")
 - Add extraction_warnings for any field that was ambiguous or illegible
 
@@ -162,7 +173,15 @@ Return ONLY valid JSON matching this exact structure — no markdown, no explana
       "source_quote": "string — the exact phrase from the form for this allergy"
     }
   ],
-  "family_history": ["string"],
+  "past_medical_history": ["string — e.g. 'Type 2 diabetes mellitus', 'Hypertension'"],
+  "surgical_history": ["string — e.g. 'Appendectomy 2005', 'C-section 2010'"],
+  "social_history": {
+    "tobacco": "string or null",
+    "alcohol": "string or null",
+    "exercise": "string or null",
+    "occupation": "string or null"
+  },
+  "family_history": ["string — e.g. 'Father: MI at 61', 'Mother: T2DM'"],
   "extraction_warnings": ["string"]
 }
 
@@ -171,6 +190,9 @@ Rules:
 - source_quote is the verbatim phrase from the form that this entry came from (used for citation tracking)
 - Use null for any field not clearly stated in the form
 - vitals: extract any vital signs listed on the form; use null for absent fields
+- past_medical_history: list every chronic condition, diagnosis, or health problem reported
+- surgical_history: list every surgery or major procedure reported with year if available
+- social_history: summarise each category in a short phrase; null if not mentioned
 - family_history is a list of plain strings (e.g. "Father: hypertension")
 - Add extraction_warnings for any field that was ambiguous or illegible
 """

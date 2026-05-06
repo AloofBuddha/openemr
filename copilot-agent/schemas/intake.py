@@ -48,6 +48,15 @@ class AllergyEntry(BaseModel):
     source_citation: SourceCitation
 
 
+class SocialHistory(BaseModel):
+    """Social history fields parsed from the intake form."""
+
+    tobacco: str | None = None
+    alcohol: str | None = None
+    exercise: str | None = None
+    occupation: str | None = None
+
+
 class IntakeExtraction(BaseModel):
     """All structured data parsed from a patient intake form PDF.
 
@@ -65,6 +74,9 @@ class IntakeExtraction(BaseModel):
     current_medications: list[MedicationEntry] = []
     allergies: list[AllergyEntry] = []
     vitals: Vitals | None = None
+    past_medical_history: list[str] = []
+    surgical_history: list[str] = []
+    social_history: SocialHistory | None = None
     family_history: list[str] = []
     source_citation: SourceCitation
     extraction_warnings: list[str] = []

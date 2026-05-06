@@ -142,11 +142,30 @@ function _buildIntakeProcessedMessage(
       if (vParts.length) lines.push(`- **Vitals:** ${vParts.join(' · ')}`);
     }
 
+    if ((e.past_medical_history ?? []).length > 0) {
+      lines.push(`- **Past medical history:** ${e.past_medical_history!.join(', ')}`);
+    }
+
+    if ((e.surgical_history ?? []).length > 0) {
+      lines.push(`- **Surgical history:** ${e.surgical_history!.join(', ')}`);
+    }
+
+    const sh = e.social_history;
+    if (sh) {
+      const shParts = [
+        sh.tobacco    && `Tobacco: ${sh.tobacco}`,
+        sh.alcohol    && `Alcohol: ${sh.alcohol}`,
+        sh.exercise   && `Exercise: ${sh.exercise}`,
+        sh.occupation && `Occupation: ${sh.occupation}`,
+      ].filter(Boolean);
+      if (shParts.length) lines.push(`- **Social history:** ${shParts.join(' · ')}`);
+    }
+
     if (e.extraction_warnings?.length) {
       lines.push(`\n⚠️ *Notes: ${e.extraction_warnings.join('; ')}*`);
     }
   }
-  lines.push('\n*Snapshot updated with intake data. Generating patient brief...*');
+  lines.push('\n*Chart updated with intake data. Generating patient brief...*');
   return lines.join('\n');
 }
 

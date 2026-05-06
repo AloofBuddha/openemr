@@ -26,6 +26,7 @@ from schemas.intake import (
     Demographics,
     IntakeExtraction,
     MedicationEntry,
+    SocialHistory,
     Vitals,
 )
 
@@ -103,6 +104,20 @@ def _build_demographics(demo_data: dict[str, Any]) -> Demographics:
     )
 
 
+def _build_social_history(raw: dict[str, Any] | None) -> SocialHistory | None:
+    if not raw:
+        return None
+    s = SocialHistory(
+        tobacco=raw.get("tobacco"),
+        alcohol=raw.get("alcohol"),
+        exercise=raw.get("exercise"),
+        occupation=raw.get("occupation"),
+    )
+    if all(v is None for v in s.model_dump().values()):
+        return None
+    return s
+
+
 def _build_vitals(vitals_data: dict[str, Any] | None) -> Vitals | None:
     if not vitals_data:
         return None
@@ -155,6 +170,9 @@ async def extract_intake_text(
         ),
         allergies=_build_allergies(data.get("allergies", []), openemr_doc_id, page_label),
         vitals=_build_vitals(data.get("vitals")),
+        past_medical_history=data.get("past_medical_history", []),
+        surgical_history=data.get("surgical_history", []),
+        social_history=_build_social_history(data.get("social_history")),
         family_history=data.get("family_history", []),
         source_citation=_doc_level_citation(openemr_doc_id, page_label, text[:200]),
         extraction_warnings=warnings,
@@ -183,8 +201,11 @@ async def extract_intake_vision_pages(
     merged: dict[str, Any] = {
         "current_medications": [],
         "allergies": [],
+        "past_medical_history": [],
+        "surgical_history": [],
         "family_history": [],
         "vitals": {},
+        "social_history": {},
     }
     all_warnings: list[str] = []
 
@@ -203,11 +224,16 @@ async def extract_intake_vision_pages(
                 merged["chief_concern"] = data["chief_concern"]
             merged["current_medications"].extend(data.get("current_medications", []))
             merged["allergies"].extend(data.get("allergies", []))
+            merged["past_medical_history"].extend(data.get("past_medical_history", []))
+            merged["surgical_history"].extend(data.get("surgical_history", []))
             merged["family_history"].extend(data.get("family_history", []))
-            # Merge vitals: first non-null value per field wins across pages
+            # Merge vitals and social history: first non-null value per field wins
             for vk, vv in (data.get("vitals") or {}).items():
                 if vv and not merged["vitals"].get(vk):
                     merged["vitals"][vk] = vv
+            for sk, sv in (data.get("social_history") or {}).items():
+                if sv and not merged["social_history"].get(sk):
+                    merged["social_history"][sk] = sv
         except Exception:
             logger.exception("Vision intake extraction failed for page %d", page_num)
             all_warnings.append(f"Vision extraction failed for page {page_num}")
@@ -224,6 +250,9 @@ async def extract_intake_vision_pages(
         ),
         allergies=_build_allergies(merged["allergies"], openemr_doc_id, page_label),
         vitals=_build_vitals(merged.get("vitals")),
+        past_medical_history=merged["past_medical_history"],
+        surgical_history=merged["surgical_history"],
+        social_history=_build_social_history(merged.get("social_history")),
         family_history=merged["family_history"],
         source_citation=_doc_level_citation(openemr_doc_id, page_label, fallback_quote),
         extraction_warnings=all_warnings,
