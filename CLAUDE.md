@@ -58,25 +58,37 @@ Backend services go under `src/` using the `OpenEMR\` PSR-4 namespace. New AI/LL
 | Checkpoint | Deadline | Status |
 |---|---|---|
 | Architecture Defense | Done | ✅ `W2_ARCHITECTURE.md` complete |
-| **MVP** | **Tue 11:59PM** | 🔴 Sidecar not built yet |
-| Early Submission | Thu 11:59PM | — |
-| Final | Sun Noon | — |
+| **MVP** | **Tue 11:59PM** | ✅ Sidecar built, deployed, citations working |
+| Early Submission | Thu 11:59PM | 🟡 In progress |
+| Final | Sun Noon | 🔴 Surprise challenge added |
 
-### MVP (tonight) — minimum required:
-- [ ] Python sidecar with `/ingest` endpoint (pdfplumber + Haiku Vision extraction)
-- [ ] Pydantic schemas: LabExtraction, IntakeExtraction, SourceCitation
-- [ ] `upload.php` calls sidecar after storing file, returns extraction summary
-- [ ] Basic hybrid RAG with BM25 + ChromaDB + rerank
-- [ ] LangGraph supervisor + intake-extractor + evidence-retriever workers
-- [ ] UI shows extraction result after upload
+### MVP — DONE ✅
+- [x] Python sidecar with `/ingest` endpoint (pdfplumber + Haiku Vision extraction)
+- [x] Pydantic schemas: LabExtraction, IntakeExtraction, SourceCitation
+- [x] `upload.php` calls sidecar after storing file, returns extraction summary
+- [x] Hybrid RAG with BM25 + ChromaDB + Cohere rerank
+- [x] LangGraph supervisor + intake-extractor + evidence-retriever workers
+- [x] Disk-backed extraction cache (persists across sidecar restarts)
+- [x] Context-aware suggestions emitted as SSE event
+- [x] UI shows extraction result after upload, inline [[PN]]/[[GN]] citations rendered
+- [x] Deployed at https://198.211.103.246.nip.io (Caddy HTTPS, systemd sidecar)
 
-### Early Submission (Thu) — adds:
-- [ ] 50-case eval suite with W2 boolean rubrics (schema_valid, citation_present, factually_consistent, no_phi_in_logs)
-- [ ] PR-blocking Git Hook (`evals/check_gate.py`)
-- [ ] `evals/baseline.json` committed
-- [ ] Deployed app with W2 flow working
-- [ ] Demo video (3-5 min)
-- [ ] Cost and latency report
+### Early Submission (Thu 11:59PM) — TODO:
+- [ ] 50-case eval suite in `evals/cases/` with boolean rubrics per case
+- [ ] Rubrics: `schema_valid`, `citation_present`, `factually_consistent`, `safe_refusal`, `no_phi_in_logs`
+- [ ] `evals/run.py` expanded to run all 50 cases and output JSON results
+- [ ] `evals/check_gate.py` — PR-blocking CI gate (exits 1 on regression vs baseline)
+- [ ] `evals/baseline.json` committed (pass rates per rubric)
+- [ ] Demo video (3-5 min): upload → extraction → evidence retrieval → citations → eval results → observability
+- [ ] Cost and latency report: actual dev spend, projected production cost, p50/p95 per endpoint, bottleneck analysis
+
+### Final (Sun Noon) — adds Surprise Challenge:
+All Early Submission items, plus:
+- [ ] Port patient dashboard to React + TypeScript consuming OpenEMR FHIR/REST API via OAuth2/OIDC
+- [ ] Patient header component (name, DOB, sex, MRN, active status)
+- [ ] Clinical cards: Allergies, Problem List, Medications, Prescriptions, Care Team
+- [ ] One additional section of choice (e.g., Recent Labs or Upcoming Appointments)
+- [ ] `PATIENT_DASHBOARD_MIGRATION.md` — framework defense doc (why the chosen framework, migration trade-offs)
 
 ### Core W2 requirements (all checkpoints):
 - Every clinical claim has machine-readable citation: `{source_type, source_id, page_or_section, field_or_chunk_id, quote_or_value}`

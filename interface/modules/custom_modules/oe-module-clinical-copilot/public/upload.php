@@ -105,7 +105,8 @@ if ($file['size'] > $maxBytes) {
 }
 
 $allowed = ['application/pdf', 'image/png', 'image/jpeg'];
-$mime    = mime_content_type($file['tmp_name']);
+$finfo   = new \finfo(FILEINFO_MIME_TYPE);
+$mime    = $finfo->file($file['tmp_name']);
 if (!in_array($mime, $allowed, true)) {
     jsonError("Unsupported file type: {$mime}");
 }
