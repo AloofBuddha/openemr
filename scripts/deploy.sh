@@ -16,4 +16,4 @@ ssh -i "$SSH_KEY" "$REMOTE_USER@$REMOTE_HOST" \
   "cd $REMOTE_PATH && git pull origin master"
 
 echo ""
-echo "Live at http://$REMOTE_HOST.nip.io"
+echo "Live at https://$REMOTE_HOST.nip.io"
