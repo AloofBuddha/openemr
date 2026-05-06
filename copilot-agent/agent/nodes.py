@@ -109,7 +109,13 @@ class GraphDeps:
 
 
 def route_from_supervisor(state: AgentState) -> str:
-    """Return the next node name based on the supervisor's most recent decision."""
+    """Return the next node name based on the supervisor's most recent decision.
+
+    Skips workers whose job is already done (extraction complete, retrieval
+    complete). Without this, Haiku occasionally re-proposes the same plan on
+    every iteration — we'd loop on intake_extractor until MAX_ITERATIONS and
+    never call evidence_retriever.
+    """
     decision_data = state.get("_supervisor_decision", {})
     next_workers: list[str] = decision_data.get("next_workers", [])
     intent: list[str] = decision_data.get("intent", [])
@@ -119,7 +125,18 @@ def route_from_supervisor(state: AgentState) -> str:
     if "out_of_scope" in intent:
         return "answer_assembler"
 
+    extracted_docs = state.get("extracted_docs", [])
+    doc_ids = state.get("doc_ids", [])
+    guideline_chunks = state.get("guideline_chunks", [])
+
+    extraction_done = len(extracted_docs) >= len(doc_ids)
+    retrieval_done = len(guideline_chunks) > 0
+
     for worker in next_workers:
+        if worker == "intake_extractor" and extraction_done:
+            continue
+        if worker == "evidence_retriever" and retrieval_done:
+            continue
         if worker in valid_nodes:
             return worker
 
@@ -252,7 +269,7 @@ async def answer_assembler_node(state: AgentState, deps: GraphDeps) -> dict:
     try:
         message = await deps.anthropic_client.messages.create(
             model=SONNET,
-            max_tokens=1200,
+            max_tokens=2400,
             messages=[{"role": "user", "content": prompt}],
         )
         answer = message.content[0].text  # type: ignore[union-attr]
@@ -264,6 +281,11 @@ async def answer_assembler_node(state: AgentState, deps: GraphDeps) -> dict:
         )
 
     answer, suggestions = _split_answer_and_suggestions(answer)
+    if not suggestions:
+        # Sonnet occasionally omits the trailing SUGGESTIONS block on long
+        # technical answers. Always surface at least one chip so the UI
+        # never shows a dead-end.
+        suggestions = _DEFAULT_SUGGESTIONS
 
     routing_log = list(state.get("routing_log", []))
     routing_log.append({
@@ -278,6 +300,13 @@ async def answer_assembler_node(state: AgentState, deps: GraphDeps) -> dict:
         "suggestions": suggestions,
         "routing_log": routing_log,
     }
+
+
+_DEFAULT_SUGGESTIONS = [
+    "What do guidelines say about this patient's conditions?",
+    "Are there any drug interactions to be aware of?",
+    "What follow-up tests or visits are appropriate?",
+]
 
 
 def _split_answer_and_suggestions(answer: str) -> tuple[str, list[str]]:

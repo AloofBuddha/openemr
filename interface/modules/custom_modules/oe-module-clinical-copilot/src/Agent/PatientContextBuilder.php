@@ -81,15 +81,17 @@ TEXT;
         $demo = $patientData['demographics'];
         $appt = $patientData['today_appointment'];
 
-        // Most recent result per test name (deduplicated, ordered newest-first by upstream query).
+        // Most recent result per test name. Dedup key strips punctuation and
+        // case so "Cholesterol Total" and "Cholesterol, Total" collapse to one row.
         $labs = [];
         $seen = [];
         foreach (($patientData['recent_labs'] ?? []) as $lab) {
             $test = $lab['test'];
-            if (isset($seen[$test])) {
+            $key  = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $test));
+            if ($key === '' || isset($seen[$key])) {
                 continue;
             }
-            $seen[$test] = true;
+            $seen[$key] = true;
             $labs[] = [
                 'test'     => $test,
                 'value'    => $lab['value'],
