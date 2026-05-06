@@ -26,6 +26,7 @@ from schemas.intake import (
     Demographics,
     IntakeExtraction,
     MedicationEntry,
+    Vitals,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,24 @@ def _build_demographics(demo_data: dict[str, Any]) -> Demographics:
     )
 
 
+def _build_vitals(vitals_data: dict[str, Any] | None) -> Vitals | None:
+    if not vitals_data:
+        return None
+    v = Vitals(
+        blood_pressure=vitals_data.get("blood_pressure"),
+        heart_rate=vitals_data.get("heart_rate"),
+        weight=vitals_data.get("weight"),
+        height=vitals_data.get("height"),
+        bmi=vitals_data.get("bmi"),
+        temperature=vitals_data.get("temperature"),
+        oxygen_saturation=vitals_data.get("oxygen_saturation"),
+    )
+    # Return None if all fields are empty (form had no vitals section)
+    if all(val is None for val in v.model_dump().values()):
+        return None
+    return v
+
+
 def _doc_level_citation(openemr_doc_id: int, page_label: str, quote: str) -> SourceCitation:
     return SourceCitation(
         source_type="intake_form",
@@ -135,6 +154,7 @@ async def extract_intake_text(
             data.get("current_medications", []), openemr_doc_id, page_label
         ),
         allergies=_build_allergies(data.get("allergies", []), openemr_doc_id, page_label),
+        vitals=_build_vitals(data.get("vitals")),
         family_history=data.get("family_history", []),
         source_citation=_doc_level_citation(openemr_doc_id, page_label, text[:200]),
         extraction_warnings=warnings,
@@ -164,6 +184,7 @@ async def extract_intake_vision_pages(
         "current_medications": [],
         "allergies": [],
         "family_history": [],
+        "vitals": {},
     }
     all_warnings: list[str] = []
 
@@ -183,6 +204,10 @@ async def extract_intake_vision_pages(
             merged["current_medications"].extend(data.get("current_medications", []))
             merged["allergies"].extend(data.get("allergies", []))
             merged["family_history"].extend(data.get("family_history", []))
+            # Merge vitals: first non-null value per field wins across pages
+            for vk, vv in (data.get("vitals") or {}).items():
+                if vv and not merged["vitals"].get(vk):
+                    merged["vitals"][vk] = vv
         except Exception:
             logger.exception("Vision intake extraction failed for page %d", page_num)
             all_warnings.append(f"Vision extraction failed for page {page_num}")
@@ -198,6 +223,7 @@ async def extract_intake_vision_pages(
             merged["current_medications"], openemr_doc_id, page_label
         ),
         allergies=_build_allergies(merged["allergies"], openemr_doc_id, page_label),
+        vitals=_build_vitals(merged.get("vitals")),
         family_history=merged["family_history"],
         source_citation=_doc_level_citation(openemr_doc_id, page_label, fallback_quote),
         extraction_warnings=all_warnings,

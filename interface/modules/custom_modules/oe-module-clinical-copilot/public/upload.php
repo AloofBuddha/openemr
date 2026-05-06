@@ -163,6 +163,7 @@ $payload = json_encode([
     'patient_id'      => $pid,
     'openemr_doc_id'  => $newId,
     'doc_type'        => $docType,
+    'doc_name'        => $safeName,
     'file_bytes_b64'  => base64_encode((string) file_get_contents($destPath)),
     'mimetype'        => $mime,
 ]);

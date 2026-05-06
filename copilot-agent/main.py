@@ -23,9 +23,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from agent.extractor import extract_document
+from schemas.other import OtherExtraction
 from agent.graph import build_graph
 from api_models import IngestRequest, QueryRequest
 from cache import ExtractionCache
+from patient_index import PatientIntakeIndex
 from rag.indexer import build_index
 from sse import event, stream_text_in_chunks
 
@@ -34,6 +36,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 _CACHE_DIR = Path("extraction_cache")
+_INDEX_DIR = Path("patient_intake_index")
 
 
 @asynccontextmanager
@@ -55,6 +58,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("COHERE_API_KEY not set — using score-based ranking fallback")
 
     extraction_cache = ExtractionCache(_CACHE_DIR)
+    patient_index = PatientIntakeIndex(_INDEX_DIR)
 
     logger.info("Compiling agent graph...")
     graph = build_graph(
@@ -70,6 +74,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.anthropic_client = anthropic_client
     app.state.graph = graph
     app.state.extraction_cache = extraction_cache
+    app.state.patient_index = patient_index
 
     yield
 
@@ -92,6 +97,8 @@ async def ingest(req: IngestRequest, request: Request) -> dict:
             status_code=400, detail="Invalid base64 encoding in file_bytes_b64."
         ) from exc
 
+    # extract_document never raises for known doc_types — it returns OtherExtraction
+    # on graceful failure. Only a ValueError (unknown type) escapes as 400.
     try:
         result = await extract_document(
             file_bytes=file_bytes,
@@ -100,16 +107,28 @@ async def ingest(req: IngestRequest, request: Request) -> dict:
             patient_id=req.patient_id,
             openemr_doc_id=req.openemr_doc_id,
             anthropic_client=request.app.state.anthropic_client,
+            doc_name=req.doc_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("Extraction failed for doc_id=%d", req.openemr_doc_id)
-        raise HTTPException(status_code=500, detail="Document extraction failed.") from exc
+        logger.exception("Extraction failed for doc_id=%d — returning OtherExtraction", req.openemr_doc_id)
+        result = OtherExtraction(
+            doc_type="other",
+            patient_id=req.patient_id,
+            openemr_doc_id=req.openemr_doc_id,
+            extraction_warnings=["Unexpected extraction error; document stored but not parsed."],
+        )
 
     result_dict = result.model_dump()
     request.app.state.extraction_cache.set(req.openemr_doc_id, result_dict)
-    logger.info("Cached extraction for doc_id=%d", req.openemr_doc_id)
+    logger.info("Cached extraction for doc_id=%d (doc_type=%s)", req.openemr_doc_id, result_dict.get("doc_type"))
+
+    if req.doc_type == "intake_form":
+        request.app.state.patient_index.register(
+            req.patient_id, req.openemr_doc_id, req.doc_name
+        )
+
     return result_dict
 
 
@@ -132,7 +151,21 @@ async def query(req: QueryRequest, request: Request) -> StreamingResponse:
 
 
 async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
-    pre_extracted, missing_ids = _gather_extractions(req.doc_ids, state.extraction_cache)
+    # Pull in any intake forms uploaded (e.g. by front desk) but not yet seen by the agent.
+    unprocessed = state.patient_index.get_unprocessed(req.patient_id)
+    if unprocessed:
+        extra_ids = [item["doc_id"] for item in unprocessed]
+        logger.info(
+            "Auto-including %d unprocessed intake form(s) for patient_id=%d: %s",
+            len(extra_ids), req.patient_id, extra_ids,
+        )
+        for item in unprocessed:
+            state.patient_index.mark_processed(req.patient_id, item["doc_id"])
+        all_doc_ids = list(set(req.doc_ids + extra_ids))
+    else:
+        all_doc_ids = req.doc_ids
+
+    pre_extracted, missing_ids = _gather_extractions(all_doc_ids, state.extraction_cache)
     if missing_ids:
         logger.warning("doc_ids not found in any cache (not yet ingested): %s", missing_ids)
 
@@ -188,3 +221,40 @@ def _gather_extractions(
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/patients/{pid}/unprocessed-intakes")
+def unprocessed_intakes(pid: int, request: Request) -> dict:
+    """Return intake forms that have been ingested but not yet processed by the agent."""
+    entries = request.app.state.patient_index.get_unprocessed(pid)
+    return {"intakes": entries}
+
+
+@app.post("/patients/{pid}/intakes/process-pending")
+def process_pending_intakes(pid: int, request: Request) -> dict:
+    """Retrieve extractions for all unprocessed intake forms, mark them processed.
+
+    Called by the PHP proxy at copilot startup so the UI can display what was
+    found and update the patient snapshot before the initial brief runs.
+    """
+    unprocessed = request.app.state.patient_index.get_unprocessed(pid)
+    if not unprocessed:
+        return {"processed": []}
+
+    result = []
+    for item in unprocessed:
+        extraction = request.app.state.extraction_cache.get(item["doc_id"])
+        if extraction is not None:
+            request.app.state.patient_index.mark_processed(pid, item["doc_id"])
+            result.append({
+                "doc_id": item["doc_id"],
+                "doc_name": item["doc_name"],
+                "extraction": extraction,
+            })
+        else:
+            logger.warning(
+                "Intake doc_id=%d for pid=%d has no cached extraction; skipping",
+                item["doc_id"], pid,
+            )
+
+    return {"processed": result}

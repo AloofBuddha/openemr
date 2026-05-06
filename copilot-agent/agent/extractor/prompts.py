@@ -80,6 +80,15 @@ Return ONLY valid JSON matching this exact structure — no markdown, no explana
     "phone": "string or null"
   }},
   "chief_concern": "string or null",
+  "vitals": {{
+    "blood_pressure": "string or null (e.g. '120/80')",
+    "heart_rate": "string or null (e.g. '72 bpm')",
+    "weight": "string or null (e.g. '165 lbs')",
+    "height": "string or null (e.g. \"5'6\\\"\")",
+    "bmi": "string or null",
+    "temperature": "string or null",
+    "oxygen_saturation": "string or null"
+  }},
   "current_medications": [
     {{
       "name": "string",
@@ -105,6 +114,7 @@ Rules:
 - confidence is a float in [0, 1] for each medication/allergy entry
 - source_quote is the verbatim phrase from the form that this entry came from (used for citation tracking)
 - Use null for any field not clearly stated in the form
+- vitals: extract any vital signs listed on the form; use null for absent fields
 - family_history is a list of plain strings (e.g. "Father: hypertension")
 - Add extraction_warnings for any field that was ambiguous or illegible
 
@@ -126,6 +136,15 @@ Return ONLY valid JSON matching this exact structure — no markdown, no explana
     "phone": "string or null"
   },
   "chief_concern": "string or null",
+  "vitals": {
+    "blood_pressure": "string or null",
+    "heart_rate": "string or null",
+    "weight": "string or null",
+    "height": "string or null",
+    "bmi": "string or null",
+    "temperature": "string or null",
+    "oxygen_saturation": "string or null"
+  },
   "current_medications": [
     {
       "name": "string",
@@ -151,6 +170,7 @@ Rules:
 - confidence is a float in [0, 1] for each medication/allergy entry
 - source_quote is the verbatim phrase from the form that this entry came from (used for citation tracking)
 - Use null for any field not clearly stated in the form
+- vitals: extract any vital signs listed on the form; use null for absent fields
 - family_history is a list of plain strings (e.g. "Father: hypertension")
 - Add extraction_warnings for any field that was ambiguous or illegible
 """

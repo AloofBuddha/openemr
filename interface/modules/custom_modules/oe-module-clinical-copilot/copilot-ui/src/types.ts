@@ -19,6 +19,10 @@ export interface SnapshotMed     { drug: string; dosage: string; note: string; }
 export interface SnapshotAllergy { title: string; reaction: string; severity: string; }
 export interface SnapshotLab     { test: string; value: string; units: string; abnormal: string; date: string; }
 export interface SnapshotDoc     { id: number; name: string; date: string; }
+export interface SnapshotVitals  {
+  bp?: string; hr?: string; weight?: string;
+  height?: string; bmi?: string; temp?: string; o2sat?: string;
+}
 
 export interface Snapshot {
   patient:     SnapshotPatient;
@@ -28,6 +32,7 @@ export interface Snapshot {
   allergies:   SnapshotAllergy[];
   labs:        SnapshotLab[];
   documents:   SnapshotDoc[];
+  vitals:      SnapshotVitals | null;
 }
 
 export interface LabResultItem {
@@ -40,9 +45,21 @@ export interface LabResultItem {
 
 export interface ExtractionSummary {
   doc_type: string;
+  // lab_pdf fields
   results?: LabResultItem[];
+  // intake_form fields
   chief_concern?: string;
   current_medications?: Array<{ name?: string; dose?: string; frequency?: string }>;
+  allergies?: Array<{ allergen?: string; reaction?: string }>;
+  demographics?: { name?: string; dob?: string; sex?: string };
+  vitals?: {
+    blood_pressure?: string | null; heart_rate?: string | null;
+    weight?: string | null; height?: string | null; bmi?: string | null;
+    temperature?: string | null; oxygen_saturation?: string | null;
+  };
+  // other / fallback fields
+  detected_type?: string | null;
+  summary?: string | null;
   extraction_warnings?: string[];
 }
 
@@ -61,6 +78,7 @@ export interface CachedConvo {
   messages: Message[];
   sources: Record<string, CiteSource>;
   snapshot?: Snapshot;
+  docIds?: number[];
 }
 
 export type DocCategory = { id: number; name: string };

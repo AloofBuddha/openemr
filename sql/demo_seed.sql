@@ -585,7 +585,7 @@ INSERT INTO openemr_postcalendar_events
      pc_eventDate, pc_startTime, pc_endTime, pc_duration, pc_alldayevent,
      pc_apptstatus, pc_prefcatid, pc_multiple, pc_sharing, pc_facility, pc_eventstatus)
 VALUES
-(5, '10', '20', 'New patient follow-up',      '2026-04-27 08:55:00', 'Chest tightness on exertion x3 weeks; lipid panel + intake form uploaded by front desk', '2026-04-27', '08:55:00', '09:15:00', 1200, 0, '@', 0, 0, 1, 3, 1),
+(5, '10', '20', 'New patient follow-up',      '2026-04-27 08:55:00', 'Chest tightness on exertion x3 weeks; intake form uploaded by front desk', '2026-04-27', '08:55:00', '09:15:00', 1200, 0, '@', 0, 0, 1, 3, 1),
 (5, '10', '4',  'Diabetes follow-up',         '2026-04-27 09:20:00', 'A1C recheck post-Jardiance addition',   '2026-04-27', '09:20:00', '09:40:00', 1200, 0, '@', 0, 0, 1, 3, 1),
 (5, '10', '7',  'Quarterly chronic review',   '2026-04-27 09:45:00', 'BP elevated at last visit; BMP + INR',  '2026-04-27', '09:45:00', '10:05:00', 1200, 0, '@', 0, 0, 1, 3, 1),
 (5, '10', '1',  'Hypertension follow-up',     '2026-04-27 10:10:00', 'BP recheck 6 wks post Lisinopril uptitration', '2026-04-27', '10:10:00', '10:30:00', 1200, 0, '@', 0, 0, 1, 3, 1),

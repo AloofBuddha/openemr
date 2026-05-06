@@ -6,6 +6,7 @@ import type {
   CiteSource,
   Message,
   Snapshot,
+  SnapshotVitals,
 } from './types';
 
 export const uid = (): string =>
@@ -33,6 +34,7 @@ export function loadCache(key: string): CachedConvo | null {
         messages: parsed.messages,
         sources:  parsed.sources ?? {},
         snapshot: parsed.snapshot,
+        docIds:   Array.isArray(parsed.docIds) ? parsed.docIds : [],
       };
     }
   } catch {
@@ -46,9 +48,10 @@ export function saveCache(
   messages: Message[],
   sources: Record<string, CiteSource>,
   snapshot: Snapshot | null,
+  docIds: number[] = [],
 ): void {
   try {
-    localStorage.setItem(key, JSON.stringify({ messages, sources, snapshot }));
+    localStorage.setItem(key, JSON.stringify({ messages, sources, snapshot, docIds }));
   } catch {
     // quota or private browsing — silently drop
   }
@@ -128,6 +131,23 @@ export function buildNumberedPatientContext(snap: Snapshot | null): NumberedCont
     idx++;
   }
 
+  if (snap.vitals) {
+    const vitalParts = _formatVitals(snap.vitals);
+    if (vitalParts.length) {
+      sourceMap[`P${idx}`] = {
+        type: 'vital',
+        label: 'Vitals',
+        fields: vitalParts.map(p => {
+          const sp = p.indexOf(' ');
+          return sp === -1 ? { key: p, value: '' } : { key: p.slice(0, sp), value: p.slice(sp + 1) };
+        }),
+        scroll_to: '#vitals_ps_expand',
+      };
+      lines.push(`[${idx}] Vitals: ${vitalParts.join(', ')}`);
+      idx++;
+    }
+  }
+
   for (const l of snap.labs.slice(0, LAB_LIMIT_FOR_CONTEXT)) {
     const label = `${l.test}: ${l.value} ${l.units}`.trim();
     sourceMap[`P${idx}`] = {
@@ -149,6 +169,18 @@ export function buildNumberedPatientContext(snap: Snapshot | null): NumberedCont
   }
 
   return { text: lines.join('\n'), sourceMap };
+}
+
+export function _formatVitals(v: SnapshotVitals): string[] {
+  return [
+    v.bp     && `BP ${v.bp}`,
+    v.hr     && `HR ${v.hr}`,
+    v.weight && `Wt ${v.weight}`,
+    v.height && `Ht ${v.height}`,
+    v.bmi    && `BMI ${v.bmi}`,
+    v.temp   && `Temp ${v.temp}`,
+    v.o2sat  && `O2sat ${v.o2sat}`,
+  ].filter((x): x is string => Boolean(x));
 }
 
 // Lab dedup helper — used both for the initial snapshot and when adding

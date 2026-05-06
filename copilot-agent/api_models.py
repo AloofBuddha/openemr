@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-DocType = Literal["lab_pdf", "intake_form"]
+DocType = Literal["lab_pdf", "intake_form", "other"]
 SupportedMimetype = Literal["application/pdf", "image/png", "image/jpeg"]
 
 # Caps reflect what the UI can realistically generate. Anything past these
@@ -24,6 +24,7 @@ class IngestRequest(BaseModel):
     doc_type: DocType
     file_bytes_b64: str  # base64-encoded file bytes
     mimetype: SupportedMimetype
+    doc_name: str = ""  # original filename — used for the patient intake index
 
 
 class QueryRequest(BaseModel):

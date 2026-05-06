@@ -17,6 +17,18 @@ class Demographics(BaseModel):
     phone: str | None = None
 
 
+class Vitals(BaseModel):
+    """Vital signs recorded on the intake form."""
+
+    blood_pressure: str | None = None
+    heart_rate: str | None = None
+    weight: str | None = None
+    height: str | None = None
+    bmi: str | None = None
+    temperature: str | None = None
+    oxygen_saturation: str | None = None
+
+
 class MedicationEntry(BaseModel):
     """A single medication entry from the intake form med list."""
 
@@ -52,6 +64,7 @@ class IntakeExtraction(BaseModel):
     chief_concern: str | None = None
     current_medications: list[MedicationEntry] = []
     allergies: list[AllergyEntry] = []
+    vitals: Vitals | None = None
     family_history: list[str] = []
     source_citation: SourceCitation
     extraction_warnings: list[str] = []

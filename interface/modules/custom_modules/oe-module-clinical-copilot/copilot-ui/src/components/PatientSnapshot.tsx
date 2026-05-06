@@ -10,8 +10,9 @@ import type {
   SnapshotLab,
   SnapshotMed,
   SnapshotProblem,
+  SnapshotVitals,
 } from '../types';
-import { formatApptTime } from '../utils';
+import { _formatVitals, formatApptTime } from '../utils';
 
 const LAB_FLAG_ORDER: Record<string, number> = { H: 0, '': 1, L: 2 };
 
@@ -55,6 +56,16 @@ const makeMedSource = (m: SnapshotMed): CiteSource => ({
   scroll_to: '#prescriptions_ps_expand',
 });
 
+const makeVitalsSource = (v: SnapshotVitals): CiteSource => ({
+  type: 'vital',
+  label: 'Vitals (intake form)',
+  fields: _formatVitals(v).map(p => {
+    const sp = p.indexOf(' ');
+    return sp === -1 ? { key: p, value: '' } : { key: p.slice(0, sp), value: p.slice(sp + 1) };
+  }),
+  scroll_to: '#vitals_ps_expand',
+});
+
 const makeLabSource = (l: SnapshotLab): CiteSource => ({
   type: 'lab', label: `${l.test}: ${l.value} ${l.units}`.trim(),
   fields: [
@@ -69,7 +80,7 @@ export function PatientSnapshot({
   snapshot, compact, onOpenSource, onOpenUpload, webRoot, pid, labsFlash,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const { patient, appointment, problems, medications, allergies, labs, documents } = snapshot;
+  const { patient, appointment, problems, medications, allergies, labs, documents, vitals } = snapshot;
 
   const sortedLabs = [...labs].sort((a, b) =>
     (LAB_FLAG_ORDER[a.abnormal ?? ''] ?? 1) - (LAB_FLAG_ORDER[b.abnormal ?? ''] ?? 1)
@@ -116,6 +127,22 @@ export function PatientSnapshot({
                   onClick={() => chipClick(makeProblemSource(p))}>
                   {p.title}
                 </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {vitals && _formatVitals(vitals).length > 0 && (
+          <div
+            className="copilot-snapshot-row copilot-chip-clickable"
+            onClick={() => chipClick(makeVitalsSource(vitals))}
+            role="button"
+            title="View vitals detail"
+          >
+            <span className="copilot-snapshot-label copilot-label-vital">Vitals</span>
+            <div className="copilot-snapshot-chips">
+              {_formatVitals(vitals).map((part, i) => (
+                <span key={i} className="copilot-snapshot-chip copilot-chip-vital">{part}</span>
               ))}
             </div>
           </div>

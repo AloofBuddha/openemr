@@ -25,7 +25,7 @@ export function CopilotPanel({
   const {
     messages, sources, activeSource, setActiveSource, snapshot,
     status, statusMessage, send, restart,
-    addDocToSnapshot, addLabsToSnapshot, addDocId, uploadedDocIds, labsFlash,
+    addDocToSnapshot, addLabsToSnapshot, addIntakeToSnapshot, addDocId, uploadedDocIds, labsFlash,
   } = useCopilotChat(pid, apiUrl, csrfToken, physicianId);
 
   const uploadUrl = apiUrl.replace(/chat\.php([^/]*)$/, `upload.php?pid=${pid}&site=default`);
@@ -217,7 +217,7 @@ export function CopilotPanel({
           addDocToSnapshot(doc);
           addDocId(doc.id);
 
-          // Push extracted labs into the snapshot card immediately.
+          // Push extracted data into the snapshot card immediately.
           if (extraction?.doc_type === 'lab_pdf' && extraction.results?.length) {
             const today = new Date().toISOString().slice(0, 10);
             addLabsToSnapshot(extraction.results.map(r => ({
@@ -227,6 +227,8 @@ export function CopilotPanel({
               abnormal: r.abnormal_flag ?? '',
               date:     today,
             })));
+          } else if (extraction?.doc_type === 'intake_form') {
+            addIntakeToSnapshot(extraction);
           }
 
           // Auto-trigger agent analysis.

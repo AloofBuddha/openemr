@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
-  Check, FlaskConical, Loader2, Upload, X, XCircle,
+  Check, FileText, FlaskConical, Loader2, Upload, X, XCircle,
 } from 'lucide-react';
 
 import type {
@@ -20,17 +20,7 @@ interface UploadedFile {
   extraction?: ExtractionSummary | null;
 }
 
-// Map a category name to a doc_type. Currently a substring heuristic;
-// note that no seeded category matches "intake/consent/history" so
-// every upload defaults to lab_pdf today. Tracked as a TODO — the long
-// term fix is an explicit type selector or a seeded "Intake Form" category.
-function inferDocType(categoryName: string): 'lab_pdf' | 'intake_form' {
-  const lower = categoryName.toLowerCase();
-  if (lower.includes('intake') || lower.includes('consent') || lower.includes('history')) {
-    return 'intake_form';
-  }
-  return 'lab_pdf';
-}
+type DocType = 'lab_pdf' | 'intake_form' | 'other';
 
 interface Props {
   open: boolean;
@@ -43,12 +33,16 @@ interface Props {
 }
 
 export function UploadModal({
-  open, onOpenChange, uploadUrl, csrfToken, categories, pid: _pid, onUploaded,
+  open, onOpenChange, uploadUrl, csrfToken, categories: _categories, pid: _pid, onUploaded,
 }: Props) {
-  const [files, setFiles]           = useState<UploadedFile[]>([]);
-  const [dragOver, setDragOver]     = useState(false);
-  const [categoryId, setCategoryId] = useState<number>(categories[0]?.id ?? 1);
-  const fileInputRef                = useRef<HTMLInputElement>(null);
+  const [files, setFiles]       = useState<UploadedFile[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [docType, setDocType]   = useState<DocType>('lab_pdf');
+  const fileInputRef            = useRef<HTMLInputElement>(null);
+
+  // Map UI doc type → backend category_id for storage classification.
+  // lab_pdf → "Lab Report" (2), intake_form → "Medical Record" (3), other → general (1)
+  const categoryId = docType === 'lab_pdf' ? 2 : docType === 'intake_form' ? 3 : 1;
 
   useEffect(() => {
     if (!open) setFiles([]);
@@ -66,9 +60,6 @@ export function UploadModal({
     }]);
 
     try {
-      const cat     = categories.find(c => c.id === categoryId);
-      const docType = cat ? inferDocType(cat.name) : 'lab_pdf';
-
       const fd = new FormData();
       fd.append('file', file);
       fd.append('pid', String(_pid));
@@ -117,21 +108,26 @@ export function UploadModal({
             </Dialog.Close>
           </div>
 
-          {categories.length > 0 && (
-            <div className="copilot-modal-category">
-              <label className="copilot-modal-category-label" htmlFor="copilot-cat-select">Category</label>
-              <select
-                id="copilot-cat-select"
-                className="copilot-modal-category-select"
-                value={categoryId}
-                onChange={e => setCategoryId(Number(e.target.value))}
-              >
-                {categories.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+          <div className="copilot-modal-category">
+            <label className="copilot-modal-category-label">Document Type</label>
+            <div className="copilot-doctype-toggle">
+              <button
+                type="button"
+                className={`copilot-doctype-btn${docType === 'lab_pdf' ? ' active' : ''}`}
+                onClick={() => setDocType('lab_pdf')}
+              >Lab Report</button>
+              <button
+                type="button"
+                className={`copilot-doctype-btn${docType === 'intake_form' ? ' active' : ''}`}
+                onClick={() => setDocType('intake_form')}
+              >Intake Form</button>
+              <button
+                type="button"
+                className={`copilot-doctype-btn${docType === 'other' ? ' active' : ''}`}
+                onClick={() => setDocType('other')}
+              >Other</button>
             </div>
-          )}
+          </div>
 
           <div
             className={`copilot-dropzone${dragOver ? ' drag-over' : ''}`}
@@ -245,5 +241,23 @@ function ExtractionPreview({ extraction }: { extraction: ExtractionSummary }) {
     );
   }
 
-  return null;
+  // "other" or any unrecognised type — show whatever info we have.
+  return (
+    <div className="copilot-extraction">
+      <div className="copilot-extraction-title">
+        <FileText size={11} style={{ marginRight: 4 }} />
+        {extraction.detected_type
+          ? `Stored as: ${extraction.detected_type}`
+          : 'Document stored'}
+      </div>
+      {extraction.summary && (
+        <div className="copilot-extraction-row">
+          <span className="copilot-extraction-val">{extraction.summary}</span>
+        </div>
+      )}
+      {extraction.extraction_warnings?.map((w, i) => (
+        <div key={i} className="copilot-extraction-warning">{w}</div>
+      ))}
+    </div>
+  );
 }
