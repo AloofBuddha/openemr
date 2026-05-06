@@ -94,12 +94,15 @@ class PatientBriefTool
 
     private function fetchTodayAppointment(int $patientId, int $physicianId): ?array
     {
+        // Try today first; fall back to next upcoming appointment within 60 days
+        $today   = date('Y-m-d');
+        $horizon = date('Y-m-d', strtotime('+60 days'));
         $row = sqlQuery(
             "SELECT pc_eid, pc_eventDate, pc_startTime, pc_title, pc_hometext
              FROM openemr_postcalendar_events
-             WHERE pc_pid = ? AND pc_eventDate = ?
-             ORDER BY pc_startTime ASC LIMIT 1",
-            [$patientId, date('Y-m-d')]
+             WHERE pc_pid = ? AND pc_eventDate >= ? AND pc_eventDate <= ?
+             ORDER BY pc_eventDate ASC, pc_startTime ASC LIMIT 1",
+            [$patientId, $today, $horizon]
         );
         if (empty($row)) {
             return null;

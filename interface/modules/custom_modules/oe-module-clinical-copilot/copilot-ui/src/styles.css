@@ -181,6 +181,33 @@
 }
 .copilot-chip-retry:hover:not(:disabled) { background: #fee2e2; border-color: #dc2626; }
 
+/* ── Agent status indicator (shown while waiting for graph to complete) ────── */
+
+.copilot-status-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: #5a7a96;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.copilot-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1a6094;
+  flex-shrink: 0;
+  animation: copilot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes copilot-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50%       { opacity: 1;   transform: scale(1.1); }
+}
+
 .copilot-footer {
   padding: 4px 12px 8px;
   border-top: 1px solid #eee;

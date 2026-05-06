@@ -151,6 +151,9 @@ async def query(req: QueryRequest):
             "iteration": 0,
         }
 
+        # Let the UI know work is in progress before the slow graph call
+        yield f"event: status\ndata: {json.dumps({'text': 'Searching clinical guidelines...'})}\n\n"
+
         try:
             result = await graph.ainvoke(state)
             answer = result.get("answer") or "I was unable to generate an answer."

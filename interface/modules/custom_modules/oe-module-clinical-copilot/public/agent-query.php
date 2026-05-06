@@ -140,7 +140,8 @@ function buildSourcesMap(array $citations, int $pid): array
                     ['key' => 'Excerpt', 'value' => substr((string) ($cit['text'] ?? ''), 0, 250)],
                 ], static fn(array $f): bool => $f['value'] !== '')),
             ];
-        } else {
+        } elseif (str_starts_with($ref, 'P')) {
+            // Patient document citation (extracted lab/intake doc)
             $docId  = isset($cit['openemr_doc_id']) ? (int) $cit['openemr_doc_id'] : 0;
             $docUrl = $docId > 0
                 ? "/controller.php?document&retrieve&patient_id={$pid}&document_id={$docId}&as_file=false"
@@ -203,7 +204,10 @@ $writeCallback = function (mixed $ch, string $data) use (
         } elseif (str_starts_with($line, 'data: ') && $evtType !== '') {
             $payload = substr($line, 6);
 
-            if ($evtType === 'citations' && !$sourcesEmitted) {
+            if ($evtType === 'status') {
+                sseEmit('status', $payload);
+
+            } elseif ($evtType === 'citations' && !$sourcesEmitted) {
                 $parsed  = json_decode($payload, true);
                 $citList = is_array($parsed) ? (array) ($parsed['citations'] ?? []) : [];
                 $srcMap  = buildSourcesMap($citList, $pid);

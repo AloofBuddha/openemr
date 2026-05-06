@@ -22,7 +22,7 @@ use OpenEMR\Modules\ClinicalCopilot\Observability\AgentAuditLogger;
 class Orchestrator
 {
     private const MODEL      = 'claude-sonnet-4-6';
-    private const MAX_TOKENS = 1500;
+    private const MAX_TOKENS = 2000;
 
     // First-turn: structured brief with citation markers + suggestion chips
     private const BRIEF_SYSTEM_PROMPT = <<<'PROMPT'
@@ -43,14 +43,13 @@ Rules:
 - Close with a one-sentence synthesized observation that names the clinical pattern visible in the data. Connect trajectory (worsening, improving, stable) to the current therapy or context. Do not prescribe or recommend. Example: "HbA1c has risen 7.8%→9.1% over 15 months despite dual-agent therapy — glycemic control is worsening."
 - You have data for exactly one patient. If asked about any other patient by name, respond: "I only have access to [first name]'s chart right now."
 - At the very end of your response, on its own line, output exactly:
-  SUGGESTIONS: followed by a JSON array of 2–3 follow-up questions using the patient's first name.
+  SUGGESTIONS: followed by a JSON array of exactly 3 follow-up questions.
 
-  Chip selection — pick 2–3 of the following:
-  1. Lab trend: if the same lab test appears 2 or more times across different dates in the data, include "Show [first name]'s [test name] trend"
-  2. History gap: if the last encounter was more than 6 months ago, include "Walk me through [first name]'s history since [last encounter date]"
-  3. Medication check: if there are active medications, include one chart-answerable question about a specific drug — e.g. "When was [first name]'s [drug name] last adjusted?" (not pharmacology)
-  4. Guidelines (always include one): pick the patient's most clinically pressing condition (e.g. the one driving today's visit or with the worst-trending data) and write "What do guidelines say about [condition]?" — e.g. "What do guidelines say about poorly controlled diabetes?" or "What do guidelines say about Stage 3 CKD management?"
-  Use the patient's first name for chart questions (1–3). Use plain condition names (not first name) for the guideline chip (4).
+  Chip selection — always output exactly 3 chips in this order:
+  1. Patient data chip (always include): if the patient has active medications, ask "When was [first name]'s [primary drug name] last adjusted?"; if no medications but labs exist, ask "What do [first name]'s [most notable test] results indicate?"; otherwise ask "Are there open referrals or follow-ups for [first name]?"
+  2. Context/history chip (always include): if the last encounter was more than 6 months ago, ask "Walk me through [first name]'s history since [last encounter date]"; if today has a specific appointment reason, ask "What else should I know for today's [reason] visit?"; otherwise ask "Are there any pending items from [first name]'s prior visits?"
+  3. Guidelines chip (always include): pick the most clinically pressing condition and write "What do guidelines say about [condition]?" e.g. "What do guidelines say about poorly controlled diabetes?" or "What do guidelines say about Stage 3 CKD management?"
+  Use the patient's first name for chips 1 and 2. Use plain condition names (not first name) for chip 3.
 PROMPT;
 
     // Follow-up turns: concise answer grounded in the same patient context

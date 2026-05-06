@@ -1,139 +1,141 @@
-# Demo Script + Interview Talking Points
+# Clinical Co-Pilot — Week 2 Demo Script (AgentForge)
 
-Target: 4–5 minutes for the video. Use this doc as a living log — add a bullet under "Decisions worth calling out" every time you make a non-obvious architectural or engineering choice.
-
----
-
-## Decisions Worth Calling Out
-
-Each entry below is a non-obvious choice made during the build. These are the things to mention in the demo video and defend in the AI interview.
-
-### Security
-
-**PatientAccessGuard — enforced at the HTTP layer, not the service layer**
-The OpenEMR REST API checks whether a user has the `patients` permission, but not whether they're authorized to access *this specific patient*. Dr. Rivera could query Dr. Chen's patient with no ACL violation. The agent's PHP endpoint calls `PatientAccessGuard::assertAccess()` before the tool runs — checks both prior encounter relationship and today's schedule. Returns 403 if neither condition is met.
-*Interview angle: "The audit finding that changed the architecture."*
-
-**Prompt injection hardened at three vectors**
-Appointment reason, SOAP note fields, and medication note fields can all contain arbitrary text entered by clinic staff. The system prompt explicitly instructs the model to treat SOURCES values as data, not instructions — and to flag (not echo) any field that contains instruction-like text. Tested: all three injection vectors pass at 100%.
-*Interview angle: "We don't just rely on Claude's robustness — we named the attack surface explicitly."*
-
-### Verification
-
-**Citation markers grounded in a real source registry**
-Every `[[N]]phrase[[/N]]` in the brief maps to a source object built from the actual DB records at request time — not inferred from the LLM's output. When a physician clicks a citation, they see the raw EHR row. If the model cites a number that doesn't exist in the registry, the UI silently drops it. The claim can only be verified against real data.
-*Interview angle: "Source attribution is mechanical, not conversational."*
-
-**Brand/generic LLM judge for medication verification**
-The medication fabrication check uses regex to detect drug names in the brief that aren't in the patient's prescription list. When something is flagged, a second Haiku call determines whether it's a known brand/generic alias (e.g. "Jardiance" → empagliflozin). Passes if all flagged names resolve; only fails on genuine fabrication. This is a deliberate two-pass design: cheap regex handles 95% of cases, LLM only fires on ambiguous positives.
-*Interview angle: "Regex first, LLM only on positive — the cheapest path that's still accurate."*
-
-### Observability
-
-**HIPAA-safe observability split**
-Using a managed tracing tool (LangSmith) would mean PHI leaves your infrastructure. The split: runtime observability goes to `copilot_audit_log` — tools called, timing, tokens, cost — stored in the same MariaDB as the patient data, no prompt content. The eval harness uses synthetic demo data only and can safely use LangSmith for run tracking without a compliance concern.
-*Interview angle: "Observability and HIPAA pull in opposite directions — the architecture addresses both."*
-
-### Cost
-
-**Session cost model, not per-call**
-The co-pilot now supports multi-turn follow-up questions. Each follow-up re-sends the patient context plus conversation history, so cost grows with depth. A brief-only session: ~$0.005. Brief + 2 follow-ups: ~$0.015. Blended effective cost at 70% cache hit rate: ~$0.004/encounter. The server-side brief cache (30-min TTL) and same-day localStorage conversation cache are the primary levers — a physician who revisits the same patient mid-shift triggers one LLM call, not two.
-*Interview angle: "The caching architecture is also the cost architecture."*
-
-### Evaluation
-
-**Eval suite covers failure modes, not just happy paths**
-15 brief cases + 3 adversarial multi-turn cases. Edge cases include: completely empty record, prompt injection in 3 vectors, cross-physician access, brand/generic drug name aliasing, missing lab/med/encounter sections. All adversarial follow-up cases pass at 100% (cross-patient refusal, no clinical prescription advice, out-of-scope pharmacology acknowledged).
-*Interview angle: "What did you find when you ran it? The injection cases caught a real gap we fixed."*
-
-**`--report` flag generates readable markdown**
-`python run.py --offline --followup --report eval_results.md` writes a narrative markdown with summary tables + per-case collapsible model output. Built because the LangSmith dashboard wasn't readable for understanding what each test case actually represented.
-*Interview angle: "Observability applies to the eval harness too."*
+> Audience: technical reviewers at a Gauntlet AI sprint.
+> Target runtime: **5 minutes**.
 
 ---
 
-## SHORT Demo Flow (3 min target)
+## 1. Architecture Diagram
 
-Keep each section tight. Say one thing, show it, move on. Don't read from notes.
+```mermaid
+flowchart TD
+    subgraph Browser["Browser (React)"]
+        UI["CopilotPanel.tsx\nbrief · chat · upload · citation drawer"]
+    end
+
+    subgraph PHP["PHP Layer (OpenEMR, port 80)"]
+        direction TB
+        AUTH["PatientAccessGuard + CsrfUtils\n(encounter or schedule check → 403)"]
+        CHAT["chat.php\nW1 brief — SSE stream\nOrchestrator + PatientBriefTool"]
+        UPLOAD["upload.php\nstores file in MySQL\nproxies → /ingest"]
+        QUERY["agent-query.php\nSSE proxy → /query"]
+        AUDIT["AgentAuditLogger\nstructured JSON, no raw PHI"]
+    end
+
+    subgraph Sidecar["Python FastAPI Sidecar (port 8400 — internal only)"]
+        direction TB
+        INGEST["/ingest endpoint"]
+        QUERYEP["/query endpoint"]
+
+        subgraph Graph["LangGraph Graph"]
+            SUP["Supervisor\n(intent classification)"]
+            IE["intake_extractor"]
+            ER["evidence_retriever"]
+            AA["answer_assembler\nClaude Sonnet 4.6"]
+            SUP -->|needs_extraction| IE
+            SUP -->|needs_evidence| ER
+            IE --> AA
+            ER --> AA
+        end
+
+        subgraph RAG["RAG Layer"]
+            BM25["BM25 index\n(keyword)"]
+            CHROMA["ChromaDB\n(semantic)"]
+            COHERE["Cohere Reranker\n(cross-encoder fusion)"]
+            BM25 --> COHERE
+            CHROMA --> COHERE
+        end
+
+        INGEST --> IE
+        QUERYEP --> SUP
+        ER --> BM25
+        ER --> CHROMA
+    end
+
+    subgraph External["External APIs"]
+        HAIKU["Claude Haiku 4.5\n(vision / text extraction)"]
+        SONNET["Claude Sonnet 4.6\n(supervisor + answer assembly)"]
+        COHERE_API["Cohere API\n(rerank)"]
+    end
+
+    DB[("OpenEMR MySQL\npatients · encounters\ndocuments · schedule")]
+
+    Browser -- "HTTPS + session cookie" --> PHP
+    AUTH --> CHAT & UPLOAD & QUERY
+    CHAT -- "PatientBriefTool\n(service classes)" --> DB
+    UPLOAD -- "INSERT documents" --> DB
+    UPLOAD -- "curl POST /ingest\n(base64 file)" --> Sidecar
+    QUERY -- "curl POST /query\n(SSE forwarded)" --> Sidecar
+    IE --> HAIKU
+    SUP --> SONNET
+    AA --> SONNET
+    COHERE --> COHERE_API
+```
 
 ---
 
-### 1. Problem (20s) — show OpenEMR patient list / chart tabs
+## 2. Why Each Component Exists
 
-> "A physician walking between rooms has 90 seconds to remember who their next patient is. OpenEMR has everything they need — spread across six tabs. The co-pilot collapses it to a 5-bullet brief before they walk in."
+### LangGraph supervisor
 
----
+The supervisor is the traffic cop. It reads the physician's query plus current state (extracted docs already cached? guideline chunks already fetched?) and emits a structured routing decision: `needs_extraction`, `needs_evidence`, or `can_answer`. That decision is persisted as JSON in the routing log, so every query is auditable after the fact. Without a supervisor, every request would invoke every worker regardless of what it actually needs — wasting tokens and latency.
 
-### 2. Live Demo (80s) — prod at http://198.211.103.246.nip.io
+### intake_extractor node
 
-Log in: `sarah.chen` / `Sarah1234!`
+When a lab PDF or intake form is uploaded, the system needs to turn a document blob into a typed, validated data structure the rest of the graph can reason over. The extractor writes its output into an in-memory cache keyed by OpenEMR document ID. When the physician later asks "what does this lipid panel mean?", the graph skips re-calling Claude and reads from the cache — extraction happens once per upload, not once per question.
 
-1. Open Phil Belford (appointment today). Brief starts streaming immediately.
-2. Point out the underlined citation phrases while it streams.
-3. When done: click a citation — show the source drawer. Say: *"This is the raw database row — not an interpretation. The physician can verify every claim in one tap."*
-4. Click "View in chart" — shows it scrolling to the relevant EHR section.
-5. Ask the follow-up: *"Show me his A1C trend"* — show the compact table + new suggestion chips.
+### evidence_retriever node (BM25 + ChromaDB hybrid + Cohere rerank)
 
-> "Never leaves the page. Every claim cited. Multi-turn context preserved in the same session."
+Clinical guidelines use exact terminology that matters: "LDL-C < 70 mg/dL for very-high-risk patients" is not the same sentence paraphrased differently. Pure semantic search (embeddings) can miss exact threshold values. Pure keyword search (BM25) misses paraphrased queries. Running both and then re-ranking with a Cohere cross-encoder — which scores each candidate chunk jointly against the full query string — gets the right section of the right guideline most reliably. Cohere is optional: if no API key is present the system falls back to the raw retrieval scores.
 
----
+### answer_assembler node
 
-### 3. Architecture Round Trip (35s) — talk over the code or a diagram
+This is the only node that calls Claude Sonnet 4.6 and writes the final answer to the physician. It receives the query, the patient context string, the extracted document data, and the retrieved guideline chunks. Its prompt enforces two hard rules: every guideline claim must carry an inline `[[GN]]` citation, and if the query requests a specific prescribing or diagnostic decision the model must disclaim and redirect rather than answer. The constraint is in the prompt, not in post-processing, so it applies to every response path.
 
-Explain the full call stack verbally:
+### PHP proxy layer (why not call Anthropic directly from JS?)
 
-> "When the page loads, a React bundle bootstraps inside the OpenEMR frame. It reads the patient ID from the DOM, checks localStorage for a same-day cached brief, and on a cache miss fires a POST to the PHP backend.
->
-> The PHP endpoint — before touching any data — runs PatientAccessGuard: checks whether this physician has a prior encounter with this patient OR an appointment today. No relationship, 403.
->
-> Past the guard, PatientBriefTool runs five SQL queries: demographics, today's appointment, last encounter with its SOAP note, active prescriptions, and recent labs. It builds a source registry — a numbered map from each data point to its raw database row.
->
-> That structured block goes to Claude Haiku as a SOURCES message. The model streams back bullets with [[N]]phrase[[/N]] citation markers. The PHP layer pipes it out as Server-Sent Events. The frontend strips the markers as they arrive, renders each bullet live, and on completion resolves citations against the source registry to power the drawer.
->
-> Total latency: ~1s to first token. Same patient mid-shift: zero latency — 30-minute server cache."
+Three reasons. First, the Anthropic API key must never reach a browser. Second, every request must pass through session validation, CSRF checking, and PatientAccessGuard — which checks that the logged-in physician has either a prior encounter or a scheduled appointment with this specific patient — before anything reaches the Python sidecar. Third, PHP is already the OpenEMR request lifecycle. Keeping auth, audit logging, and database writes there avoids splitting those responsibilities across three runtimes.
+
+### pdfplumber + Haiku Vision two-path extraction
+
+Lab reports arrive in two flavors: PDFs generated by digital systems (with selectable embedded text) and PDFs that are scanned paper (images inside a PDF wrapper). pdfplumber can extract text from the first kind cheaply. For the second, it renders each page to PNG and sends it to Claude Haiku via the vision API. Haiku is used instead of Sonnet because extraction is a mechanical task — read the table, output JSON — and Haiku does it accurately at roughly one-tenth the cost.
+
+### Citation markers `[[N]]` and `[[GN]]`
+
+Every claim in the answer needs to be traceable to a source so the physician can verify it. Two namespaces exist because the sources have different epistemic status. `[[N]]` (blue in the UI) refers to a patient-record document — something the patient or clinic provided. `[[GN]]` (purple) refers to a chunk from the clinical guideline corpus — published evidence. Keeping them visually distinct lets the physician instantly know whether a claim comes from the patient's own data or from a guideline, which affects how they should weight it.
 
 ---
 
-### 4. Evals (25s) — show eval_results.md
+## 3. Demo Script
 
-> "35 test cases: 25 brief cases and 10 adversarial multi-turn cases. The brief cases cover missing data, six injection vectors — including unicode obfuscation and social engineering — polypharmacy, stale encounter flagging, brand/generic drug aliasing. The multi-turn cases test cross-patient refusal, PII requests, roleplay jailbreaks, system prompt extraction, false diagnosis confirmation. Most checks at 100%. The one interesting find: injection in the appointment reason field was originally failing — the model echoed the injected string. Fixed by explicitly naming the attack surface in the system prompt."
+> Format: Time | What to click / show | What to say
+
+| Time | Action | What to Say |
+|------|--------|-------------|
+| 0:00 | Open OpenEMR at the deployed URL. Navigate to Margaret Chen's patient chart. The CopilotPanel is visible in the sidebar. A spinner shows the brief loading. | "This is OpenEMR — an open-source EHR used by real clinics. We've embedded a Clinical Co-Pilot panel directly in the chart. The moment a physician opens a patient, the panel starts building a pre-visit briefing from the patient's actual records." |
+| 0:15 | The brief finishes streaming. Visible: chief complaint, active conditions, meds, last vitals, inline `[[1]]` `[[2]]` citation badges. | "The brief pulls from OpenEMR's service layer — demographics, encounters, prescriptions, labs. You'll see numbered citation markers on clinical claims." |
+| 0:45 | Click the `[[1]]` badge. A slide-out drawer opens: source type, encounter date, and the raw field value. | "Clicking any citation opens a sourcing drawer. This one traces back to a specific encounter note — the raw database row, not another AI summary. Blue badge means patient record. If it were purple, it's a clinical guideline. Two distinct namespaces because those sources have different weight." |
+| 1:00 | Close the drawer. Point to the suggested-query pill row at the bottom of the panel. | "The W1 brief covers what we already know. Week 2 adds the ability to answer evidence-based questions in real time." |
+| 1:15 | Click the pill: **"What do guidelines say about hyperlipidemia management?"** A loading indicator appears. | "This query goes through a different path — it hits our Python FastAPI sidecar and the LangGraph multi-agent graph." |
+| 1:30 | The answer appears, streaming. It contains inline `[[G1]]`, `[[G2]]` markers in purple. Example visible text: "For patients with established ASCVD, ACC/AHA guidelines recommend high-intensity statin therapy [[G1]] targeting LDL-C below 70 mg/dL [[G2]]." | "The purple G-markers are guideline citations. Every guideline claim must have one — that's a hard rule in the answer assembler's prompt. The model cannot produce an unsourced clinical guideline claim." |
+| 2:15 | Click the `[[G1]]` purple badge. Drawer opens: source label 'ACC/AHA 2023 §2.1', the excerpt text, relevance score. | "The purple drawer shows the exact guideline section and the text excerpt we retrieved. The physician reads the source before acting on it. This is the difference between an AI that says 'trust me' and one that shows its work." |
+| 2:30 | Close the drawer. Click the upload button (paperclip icon). Select a lipid panel PDF. Upload progress shows. | "Now for Week 2's document ingestion. I'm uploading a lipid panel PDF — imagine the patient brought this from a recent lab visit." |
+| 2:45 | Upload completes. An extraction preview table appears below the upload button: test name, value, unit, reference range, flag. LDL-C row shows "142 mg/dL" with a red "H" flag. | "Within a few seconds the sidecar extracted every row into a Pydantic-validated schema. pdfplumber tried the text layer first — fast and cheap. If the PDF had been a scan, it would have fallen back to Claude Haiku vision. Either path produces the same output schema." |
+| 3:15 | Point to the patient snapshot card at the top of the panel. The Labs row now reflects the new LDL-C value. | "The snapshot card updates with the ingested values. The physician sees current lab numbers without any manual re-entry." |
+| 3:45 | Type in the query box: **"What should I prescribe for this lipid panel?"** Submit. | "I'll now ask something that crosses a line — a specific prescribing decision." |
+| 4:00 | Answer appears. First sentence: "I can't make specific clinical decisions, but guidelines offer the following context:" — followed by `[[G1]]` `[[G2]]` citations. | "The system declines to prescribe. That disclaimer is baked into the answer assembler's prompt, not into a filter applied afterward. It doesn't block the response — it redirects to evidence. The physician still gets the relevant guidelines; the decision stays with them." |
+| 4:15 | Switch to the architecture diagram (or scroll up in the document). Point to the LangGraph subgraph. | "Here's what just happened. The supervisor read 'what should I prescribe' and classified it as `needs_evidence`. The extracted doc was already in cache, so it skipped the intake_extractor and routed straight to evidence_retriever. BM25 and ChromaDB ran in parallel, Cohere re-ranked the top candidates, and the answer assembler received the five most relevant chunks." |
+| 4:30 | Point to the PHP layer in the diagram. | "Nothing in that path was reachable from the browser directly. Every request flows through PHP first — session check, CSRF, PatientAccessGuard. The sidecar is on 127.0.0.1 port 8400 and not reachable externally. API keys never leave the server." |
+| 4:45 | Return to the live panel. | "That's Week 2: document extraction, hybrid RAG, LangGraph routing, and machine-readable citations at two namespaces. Week 3 would add ambient encounter transcription, real-time alert injection during the visit, and an expanded 50-case eval suite with a PR-blocking CI gate. Thanks." |
 
 ---
 
-### 5. Limitation (10s)
+## 4. Architecture Slide Talking Points
 
-> "The one problem this can't solve: errors of omission. A medication from an outside provider that was never entered is invisible — and 'not on record' looks the same as a genuine negative. The brief says so on every load."
+- **Two citation namespaces signal two epistemic sources.** `[[N]]` (blue) is a fact the patient brought with them. `[[GN]]` (purple) is a fact from published evidence. A physician should weight these differently — the UI enforces that distinction visually without the physician having to ask.
 
----
+- **The supervisor's routing decision is structured JSON, not prose.** Every query leaves an auditable trail: which workers ran, in what order, how long each took, and what reasoning the supervisor gave. In a regulated environment you can reconstruct the full decision path for any answer the system produced.
 
-## Before You Hit Record
+- **The PHP layer is not legacy indirection — it is the security boundary.** PatientAccessGuard checks that the logged-in physician has a prior encounter or a scheduled appointment with this patient before any query reaches the sidecar. One SQL check, but it prevents a valid session from being used to query an arbitrary patient chart.
 
-- [ ] Log into prod, confirm Phil Belford has a today appointment
-- [ ] Run `DELETE FROM copilot_brief_cache WHERE patient_id = 1;` to clear server cache
-- [ ] Open `eval_results.md` tab for the evals cut
-- [ ] Practice the architecture paragraph out loud once — it's the hardest part to say cleanly
-
----
-
-## Interview Crib Sheet
-
-**Why service layer over REST API?**
-REST layer has no per-patient authorization — any credentialed user can query any patient. Service layer is where the care-relationship check lives.
-
-**Why Harvey-style source drawer over footnotes?**
-Footnotes show a number. The drawer shows the raw EHR record — field by field, from the actual database row. The physician can see it's not more AI output.
-
-**Why not stream the brief from a queue / background job?**
-The physician opens the chart and needs context immediately. A background job adds latency and complexity with no benefit — the SSE stream starts within one second of page load, and the brief completes in 3–5s. Cache handles repeat loads at $0.00.
-
-**Why not LangGraph or an agent framework?**
-This agent is single-pass with a fixed tool set. LangGraph adds stateful graph complexity that has no use case here. It becomes relevant if we add dynamic tool selection or multi-step reasoning chains (UC-3 lab trend analysis).
-
-**Biggest unsolved problem?**
-Errors of omission. The system can't detect what's missing from the record.
-
-**Cost at scale?**
-~$0.004/encounter blended (70% cache hit rate, ~40% of sessions include follow-ups). At 10K users: ~$638/month on LLM alone. Key levers: appointment-scoped brief cache, same-day localStorage conversation cache, Haiku for follow-up turns at scale. Full breakdown in `COST_ANALYSIS.md`.
-
-**What did you find when you ran the evals?**
-The prompt injection case in the appointment reason field was initially failing — the model echoed the injected string verbatim. Fixed by adding an explicit system prompt instruction to flag (not echo) field values containing instruction-like text. All three injection vectors now pass.
+- **pdfplumber + Haiku vision costs roughly $0.002 per lab page.** The two-path design means text-layer PDFs — the majority — skip the vision API entirely and cost an order of magnitude less. Haiku only fires when pdfplumber returns fewer than 100 printable characters. Cost scales with document complexity, not document count.

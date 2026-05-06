@@ -100,34 +100,161 @@ function saveCache(key: string, messages: Message[], sources: Record<string, Cit
   } catch { /* quota or private browsing */ }
 }
 
-// ─── Build patient context string from snapshot (for agent POST) ───────────
+// ─── Build numbered patient context + sourceMap for agent POST ─────────────
+// Uses P-prefixed keys (P1, P2...) so they don't collide with the brief's
+// numeric citation keys (1, 2, 3...) already in sources state.
 
-function buildPatientContext(snap: Snapshot | null): string {
-  if (!snap) return '';
+interface NumberedContext {
+  text: string;
+  sourceMap: Record<string, CiteSource>;
+}
+
+function buildNumberedPatientContext(snap: Snapshot | null): NumberedContext {
+  if (!snap) return { text: '', sourceMap: {} };
+
+  const sourceMap: Record<string, CiteSource> = {};
   const lines: string[] = [
     `Patient: ${snap.patient.name}, ${snap.patient.age}y ${snap.patient.sex}`,
   ];
-  if (snap.appointment?.reason) lines.push(`Today's visit: ${snap.appointment.reason}`);
-  if (snap.problems.length) lines.push(`Problems: ${snap.problems.map(p => p.title).join(', ')}`);
-  if (snap.medications.length) lines.push(`Medications: ${snap.medications.map(m => `${m.drug} ${m.dosage}`.trim()).join('; ')}`);
-  if (snap.allergies.length) lines.push(`Allergies: ${snap.allergies.map(a => a.title).join(', ')}`);
-  if (snap.labs.length) {
-    lines.push(`Recent labs: ${snap.labs.slice(0, 8).map(l =>
-      `${l.test} ${l.value}${l.units}${l.abnormal ? ` [${l.abnormal}]` : ''}`
-    ).join(', ')}`);
+  let idx = 1;
+
+  if (snap.appointment?.reason) {
+    sourceMap[`P${idx}`] = {
+      type: 'appointment', label: "Today's appointment",
+      fields: [{ key: 'Reason', value: snap.appointment.reason }],
+    };
+    lines.push(`[${idx}] Today's visit: ${snap.appointment.reason}`);
+    idx++;
   }
-  return lines.join('\n');
+
+  for (const p of snap.problems) {
+    sourceMap[`P${idx}`] = {
+      type: 'problem', label: p.title,
+      fields: [{ key: 'ICD-10', value: p.icd10 }, { key: 'Since', value: p.since }].filter(f => f.value),
+      scroll_to: '#medical_problem_ps_expand',
+    };
+    lines.push(`[${idx}] Problem: ${p.title}${p.icd10 ? ` (${p.icd10})` : ''}`);
+    idx++;
+  }
+
+  for (const m of snap.medications) {
+    const label = `${m.drug} ${m.dosage}`.trim();
+    sourceMap[`P${idx}`] = {
+      type: 'medication', label,
+      fields: [{ key: 'Drug', value: m.drug }, { key: 'Dose', value: m.dosage }].filter(f => f.value),
+      scroll_to: '#prescriptions_ps_expand',
+    };
+    lines.push(`[${idx}] Medication: ${label}`);
+    idx++;
+  }
+
+  for (const a of snap.allergies) {
+    sourceMap[`P${idx}`] = {
+      type: 'allergy', label: a.title,
+      fields: [{ key: 'Reaction', value: a.reaction }, { key: 'Severity', value: a.severity }].filter(f => f.value),
+      scroll_to: '#allergy_ps_expand',
+    };
+    lines.push(`[${idx}] Allergy: ${a.title}${a.reaction ? ` → ${a.reaction}` : ''}`);
+    idx++;
+  }
+
+  for (const l of snap.labs.slice(0, 8)) {
+    const label = `${l.test}: ${l.value} ${l.units}`.trim();
+    sourceMap[`P${idx}`] = {
+      type: 'lab', label,
+      fields: [
+        { key: 'Result', value: `${l.value} ${l.units}`.trim() },
+        { key: 'Flag', value: l.abnormal || 'Within range' },
+        { key: 'Collected', value: l.date },
+      ].filter(f => f.value),
+      scroll_to: '#labdata_ps_expand',
+    };
+    lines.push(`[${idx}] Lab: ${label}${l.abnormal ? ` [${l.abnormal}]` : ''}${l.date ? ` — ${l.date}` : ''}`);
+    idx++;
+  }
+
+  return { text: lines.join('\n'), sourceMap };
 }
 
 // ─── Render markdown + citations ───────────────────────────────────────────
 
-// Matches [[N]]..[[/N]] (patient records) and [[GN]]..[[/GN]] (guidelines)
+// Matches [[N]], [[GN]], [[PN]] citation pairs — brief uses [[N]], agent uses [[GN]]/[[PN]]
 function replaceCites(text: string, sources: Record<string, CiteSource>): string {
-  return text.replace(/\[\[([G]?\d+)\]\]([\s\S]*?)\[\[\/\1\]\]/g, (_, idx, inner) => {
+  return text.replace(/\[\[([PG]?\d+)\]\]([\s\S]*?)\[\[\/\1\]\]/g, (_, idx, inner) => {
     const src = sources[idx];
     const typeClass = src ? ` copilot-cite-${src.type}` : '';
     return `<button class="copilot-cite-text${typeClass}" data-src="${idx}">${replaceCites(inner, sources)}</button>`;
   });
+}
+
+// Build (phrase, sourceKey) pairs from the known sources map so we can auto-link
+// mentions that the LLM didn't cite explicitly.
+function buildPhraseMap(sources: Record<string, CiteSource>): Array<[string, string]> {
+  const seen = new Set<string>();
+  const candidates: Array<[string, string]> = [];
+
+  const add = (phrase: string, key: string) => {
+    const norm = phrase.toLowerCase().trim();
+    if (norm.length < 4 || seen.has(norm)) return;
+    seen.add(norm);
+    candidates.push([phrase, key]);
+  };
+
+  // Skip types that are too generic to match reliably
+  const SKIP_TYPES = new Set(['appointment', 'encounter']);
+  const SKIP_RE = /^(today|none|no |unknown|not |established)/i;
+
+  for (const [key, src] of Object.entries(sources)) {
+    if (SKIP_TYPES.has(src.type)) continue;
+    const label = (src.label ?? '').trim();
+    if (!label || SKIP_RE.test(label)) continue;
+
+    add(label, key);
+
+    if (src.type === 'medication') {
+      // Also match drug name without dose: "Metformin 500mg" → "Metformin"
+      const drugOnly = label.split(/\s+\d/)[0].trim();
+      if (drugOnly !== label) add(drugOnly, key);
+    } else if (src.type === 'lab') {
+      // Also match test name: "Total Cholesterol: 240 mg/dL" → "Total Cholesterol"
+      const testOnly = label.split(':')[0].trim();
+      if (testOnly !== label) add(testOnly, key);
+    } else if (src.type === 'problem') {
+      // Strip ICD code parenthetical: "Type 2 DM (E11.9)" → "Type 2 DM"
+      const titleOnly = label.replace(/\s*\(.*?\)/, '').trim();
+      if (titleOnly !== label) add(titleOnly, key);
+    }
+  }
+
+  // Longest-first so "Metformin 500mg" matches before "Metformin"
+  return candidates.sort((a, b) => b[0].length - a[0].length);
+}
+
+// Scan plain-text segments (between existing citation tags) for known phrases
+// and wrap them — one auto-link per source key to avoid clutter.
+function autoLinkPhrases(text: string, phraseMap: Array<[string, string]>): string {
+  if (phraseMap.length === 0) return text;
+
+  // Split on existing [[X]]...[[/X]] blocks; odd-index parts are already cited
+  const CITE_SPLIT = /(\[\[[PG]?\d+\]\][\s\S]*?\[\[\/[PG]?\d+\]\])/g;
+  const parts = text.split(CITE_SPLIT);
+
+  const usedKeys = new Set<string>();
+
+  return parts.map((part, i) => {
+    if (i % 2 === 1) return part; // inside an existing citation — skip
+    let result = part;
+    for (const [phrase, key] of phraseMap) {
+      if (usedKeys.has(key)) continue;
+      const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`\\b${escaped}\\b`, 'i');
+      if (re.test(result)) {
+        result = result.replace(re, `[[${key}]]${phrase}[[/${key}]]`);
+        usedKeys.add(key);
+      }
+    }
+    return result;
+  }).join('');
 }
 
 function renderContent(
@@ -137,11 +264,15 @@ function renderContent(
 ): string {
   let text = content.replace(/\nSUGGESTIONS:[\s\S]*$/, '').trimEnd();
   if (isStreaming) {
-    text = text.replace(/\[\[[G]?\d+\]\]/g, '').replace(/\[\[\/[G]?\d+\]\]/g, '');
+    text = text.replace(/\[\[[PG]?\d+\]\]/g, '').replace(/\[\[\/[PG]?\d+\]\]/g, '');
   } else {
+    // Auto-link known phrases the LLM didn't explicitly cite
+    const phraseMap = buildPhraseMap(sources);
+    text = autoLinkPhrases(text, phraseMap);
+    // Render explicit citation tags
     text = replaceCites(text, sources);
-    // Strip any remaining unmatched/unclosed citation tags the regex couldn't pair
-    text = text.replace(/\[\[\/?G?\d+\]\]/g, '');
+    // Strip any remaining unmatched/unclosed tags
+    text = text.replace(/\[\[\/?[PG]?\d+\]\]/g, '');
   }
   return marked.parse(text) as string;
 }
@@ -166,6 +297,7 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
   const snapshotRef = useRef<Snapshot | null>(null);
   const [status, setStatus]             = useState<Status>(() => loadCache(cacheKey) ? 'cached' : 'idle');
 
+  const [statusMessage, setStatusMessage]   = useState('');
   const [uploadedDocIds, setUploadedDocIds] = useState<number[]>([]);
   const uploadedDocIdsRef = useRef<number[]>([]);
 
@@ -214,13 +346,19 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
       ? [...new Set([...uploadedDocIdsRef.current, ...extraDocIds])]
       : [];
 
+    // Build numbered patient context so agent can use [[PN]] citations
+    const { text: patientCtxText, sourceMap: patientSrcMap } = buildNumberedPatientContext(snapshotRef.current);
+    if (useAgent && Object.keys(patientSrcMap).length > 0) {
+      setSources(prev => ({ ...prev, ...patientSrcMap }));
+    }
+
     const body = useAgent
       ? new URLSearchParams({
           pid:             String(pid),
           csrf_token_form: csrfToken,
           query:           userText,
           doc_ids:         JSON.stringify(docIds),
-          patient_context: buildPatientContext(snapshotRef.current),
+          patient_context: patientCtxText,
         })
       : new URLSearchParams({
           pid:             String(pid),
@@ -269,7 +407,9 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
             let data: Record<string, unknown>;
             try { data = JSON.parse(t.slice(6)); } catch { continue; }
 
-            if (eventType === 'snapshot') {
+            if (eventType === 'status') {
+              setStatusMessage((data.text as string) ?? '');
+            } else if (eventType === 'snapshot') {
               const snap = data as unknown as Snapshot;
               setSnapshot(snap);
               snapshotRef.current = snap;
@@ -292,6 +432,7 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
                 m.id === assistantId ? { ...m, suggestions: chips } : m
               ));
             } else if (eventType === 'done') {
+              setStatusMessage('');
               setMessages(prev => prev.map(m =>
                 m.id === assistantId ? { ...m, isStreaming: false } : m
               ));
@@ -339,8 +480,10 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
     requestAnimationFrame(() => setLabsFlash(true));
     setSnapshot(prev => {
       if (!prev) return prev;
-      // Normalize test name for deduplication: lowercase, strip punctuation, collapse spaces
-      const normName = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+      // Normalize for dedup: strip everything after first comma (e.g. ", Calculated", ", Direct")
+      // then lowercase and collapse non-alphanumeric chars. This makes
+      // "LDL Cholesterol, Calculated" == "LDL Cholesterol" == "ldl cholesterol".
+      const normName = (s: string) => s.split(',')[0].toLowerCase().replace(/[^a-z0-9]/g, '').replace(/\s+/g, ' ').trim();
       const dateOf = (l: SnapshotLab) => l.date || '';
       // Merge: build map keyed by normalized name, keeping the entry with the latest date
       const merged = new Map<string, SnapshotLab>();
@@ -353,6 +496,8 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
       const sorted = Array.from(merged.values()).sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
       return { ...prev, labs: sorted };
     });
+    // Save immediately so labs survive a page reload even if no agent query completes
+    setNeedsSave(true);
   }, []);
 
   const addDocId = useCallback((id: number) => {
@@ -361,7 +506,7 @@ function useCopilotChat(pid: number, apiUrl: string, csrfToken: string, physicia
 
   return {
     messages, sources, activeSource, setActiveSource, snapshot,
-    status, send, restart,
+    status, statusMessage, send, restart,
     addDocToSnapshot, addLabsToSnapshot, addDocId, uploadedDocIds, labsFlash,
   };
 }
@@ -375,7 +520,7 @@ const WIDE_BREAKPOINT = 800;
 export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId, webRoot, categories }: Props) {
   const {
     messages, sources, activeSource, setActiveSource, snapshot,
-    status, send, restart,
+    status, statusMessage, send, restart,
     addDocToSnapshot, addLabsToSnapshot, addDocId, uploadedDocIds, labsFlash,
   } = useCopilotChat(pid, apiUrl, csrfToken, physicianId);
 
@@ -441,6 +586,8 @@ export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId, webRoot, cat
         if (msg.hidden) return null;
         const isLastAssistant = msg.role === 'assistant'
           && messages.slice(i + 1).every(m => m.role !== 'assistant');
+        const isLastStreaming = msg.role === 'assistant' && msg.isStreaming &&
+          messages.slice(i + 1).every(m => m.role !== 'assistant');
         return (
           <MessageBubble
             key={msg.id}
@@ -450,6 +597,7 @@ export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId, webRoot, cat
             onChip={handleChip}
             isBusy={isBusy}
             showDisclaimer={isLastAssistant && !msg.isStreaming && !msg.isError}
+            statusMessage={isLastStreaming ? statusMessage : ''}
           />
         );
       })}
@@ -582,7 +730,7 @@ export function CopilotPanel({ pid, apiUrl, csrfToken, physicianId, webRoot, cat
 // ---------------------------------------------------------------------------
 
 function MessageBubble({
-  msg, sources, onCite, onChip, isBusy, showDisclaimer,
+  msg, sources, onCite, onChip, isBusy, showDisclaimer, statusMessage,
 }: {
   msg: Message;
   sources: Record<string, CiteSource>;
@@ -590,6 +738,7 @@ function MessageBubble({
   onChip: (text: string) => void;
   isBusy: boolean;
   showDisclaimer: boolean;
+  statusMessage?: string;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -638,14 +787,22 @@ function MessageBubble({
   }
 
   const html = renderContent(msg.content, !!msg.isStreaming, sources);
+  const showStatus = msg.isStreaming && !msg.content && statusMessage;
 
   return (
     <div className="copilot-message-assistant">
-      <div
-        ref={contentRef}
-        className={`copilot-content${msg.isStreaming ? ' streaming' : ''}`}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      {showStatus ? (
+        <div className="copilot-status-message">
+          <span className="copilot-status-dot" />
+          {statusMessage}
+        </div>
+      ) : (
+        <div
+          ref={contentRef}
+          className={`copilot-content${msg.isStreaming ? ' streaming' : ''}`}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
       {showDisclaimer && (
         <div className="copilot-footer">
           <span className="copilot-disclaimer">

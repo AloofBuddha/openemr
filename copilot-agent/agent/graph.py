@@ -26,13 +26,19 @@ You are a clinical co-pilot assistant helping a physician prepare for a patient 
 Answer the physician's query concisely (1-3 paragraphs) using only the patient context and
 guideline evidence provided below. Never fabricate clinical facts.
 
-Inline citation format:
-- For guideline evidence ONLY: [[GN]]phrase[[/GN]] where N is the guideline number (e.g. [[G1]], [[G2]])
-- Do NOT use [[N]] numeric citations for patient record facts — patient context is provided
-  as plain text reference only. State patient facts directly without citing them.
+CITATION RULES — MANDATORY, NO EXCEPTIONS:
+Every drug name, lab value, diagnosis, visit reason, and allergy you mention MUST be wrapped
+in citation markers. No clinical fact may appear without one.
+- Patient record facts → [[PN]]the exact phrase[[/PN]]
+  where N matches the line number in PATIENT CONTEXT (line [3] → [[P3]]...[[/P3]])
+- Guideline evidence → [[GN]]the exact phrase[[/GN]]
+  where N is the guideline number (e.g. [[G1]]...[[/G1]])
 
-Every guideline claim must have an inline [[GN]] citation. Patient context facts should be
-stated naturally. Use "unknown" if information is not present in the provided context.
+Example of correct output:
+"The patient is taking [[P4]]Metformin 500mg[[/P4]] for [[P2]]Type 2 Diabetes[[/P2]].
+[[G1]]Guidelines recommend HbA1c target <7% for most adults[[/G1]]."
+
+Use "unknown" only when a fact is genuinely absent from both sources below.
 
 MEDICAL ADVICE RULE:
 If the query asks for a specific clinical decision — what to prescribe, exact dose, whether
@@ -87,7 +93,7 @@ def _summarise_extracted_docs(extracted_docs: list[dict]) -> str:
                 f"(ref: {r.get('reference_range', 'N/A')}, flag: {r.get('abnormal_flag', 'N/A')})"
                 for r in results[:10]  # cap to avoid token bloat
             ]
-            lines.append(f"[[{i}]] Lab Report (doc_id={doc_id}):")
+            lines.append(f"[[P{i}]] Lab Report (doc_id={doc_id}):")
             lines.extend(result_lines)
             if len(results) > 10:
                 lines.append(f"  ... and {len(results) - 10} more results")
@@ -97,7 +103,7 @@ def _summarise_extracted_docs(extracted_docs: list[dict]) -> str:
             meds = doc.get("current_medications", [])
             allergies = doc.get("allergies", [])
             cc = doc.get("chief_concern", "not stated")
-            lines.append(f"[[{i}]] Intake Form (doc_id={doc_id}):")
+            lines.append(f"[[P{i}]] Intake Form (doc_id={doc_id}):")
             lines.append(f"  Chief concern: {cc}")
             if demo:
                 lines.append(f"  Demographics: {json.dumps(demo)}")
@@ -114,7 +120,7 @@ def _summarise_extracted_docs(extracted_docs: list[dict]) -> str:
                 )
                 lines.append(f"  Allergies: {allergy_str}")
         else:
-            lines.append(f"[[{i}]] Unknown document type (doc_id={doc_id})")
+            lines.append(f"[[P{i}]] Unknown document type (doc_id={doc_id})")
 
     return "\n".join(lines)
 
@@ -310,7 +316,7 @@ def build_graph(
             })
         for i, doc in enumerate(extracted_docs, start=1):
             citations.append({
-                "ref": str(i),
+                "ref": f"P{i}",
                 "source_type": doc.get("doc_type", "document"),
                 "openemr_doc_id": doc.get("openemr_doc_id"),
             })
