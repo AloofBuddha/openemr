@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
-from typing import Any
+from typing import Any, Callable
 
 import anthropic
 import chromadb
@@ -13,7 +14,7 @@ from rank_bm25 import BM25Okapi
 
 from agent.evidence_retriever import format_guideline_sources, retrieve_evidence
 from agent.intake_extractor import extract_document
-from agent.supervisor import AgentState, SupervisorDecision, _async_make_supervisor_decision
+from agent.supervisor import AgentState, SupervisorDecision, make_supervisor_decision
 from rag.indexer import GuidelineChunk
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,9 @@ CLINICAL GUIDELINE EVIDENCE:
 ---
 
 Provide your answer now. Be concise and clinically precise.
+
+At the very end of your response, on its own line, output exactly:
+SUGGESTIONS: followed by a JSON array of exactly 3 specific follow-up questions the physician might ask next, relevant to this patient and query. No markdown fences around the array.
 """
 
 
@@ -136,6 +140,7 @@ def build_graph(
     bm25: BM25Okapi,
     bm25_chunks: list[GuidelineChunk],
     chroma_collection: chromadb.Collection,
+    get_extraction: Callable[[int], dict | None] | None = None,
 ) -> Any:
     """Build and compile the LangGraph clinical co-pilot graph.
 
@@ -167,7 +172,7 @@ def build_graph(
                 next_workers=["answer_assembler"],
             )
         else:
-            decision = await _async_make_supervisor_decision(state, anthropic_client)
+            decision = await make_supervisor_decision(state, anthropic_client)
 
         duration_ms = int((time.monotonic() - t0) * 1000)
         log_entry = {
@@ -206,14 +211,13 @@ def build_graph(
         warnings_added: list[str] = []
 
         for doc_id in pending_ids:
-            # We don't have the file bytes here — the graph only processes
-            # doc IDs that were already ingested via /ingest.  The extracted
-            # data should have been persisted server-side. For now, we emit a
-            # warning noting that the doc needs to be fetched.
-            warnings_added.append(
-                f"Doc {doc_id} was listed in doc_ids but no pre-extracted data was found. "
-                "Upload the document via /ingest first."
-            )
+            cached = get_extraction(doc_id) if get_extraction is not None else None
+            if cached:
+                new_extractions.append(cached)
+            else:
+                warnings_added.append(
+                    f"Doc {doc_id} extraction not found — upload via /ingest first."
+                )
 
         duration_ms = int((time.monotonic() - t0) * 1000)
         routing_log = list(state.get("routing_log", []))
@@ -287,7 +291,7 @@ def build_graph(
         try:
             message = await anthropic_client.messages.create(
                 model=_SONNET,
-                max_tokens=1024,
+                max_tokens=1200,
                 messages=[{"role": "user", "content": prompt}],
             )
             answer = message.content[0].text  # type: ignore[union-attr]
@@ -297,6 +301,21 @@ def build_graph(
                 "I was unable to generate an answer due to an internal error. "
                 "Please review the patient records directly."
             )
+
+        # Parse and strip SUGGESTIONS block from end of answer
+        suggestions: list[str] = []
+        sug_pos = answer.rfind("SUGGESTIONS:")
+        if sug_pos != -1:
+            rest = answer[sug_pos + len("SUGGESTIONS:"):].strip()
+            answer = answer[:sug_pos].strip()
+            m = re.search(r"(\[.*\])", rest, re.DOTALL)
+            if m:
+                try:
+                    decoded = json.loads(m.group(1))
+                    if isinstance(decoded, list):
+                        suggestions = [s for s in decoded if isinstance(s, str)]
+                except Exception:
+                    logger.warning("Failed to parse suggestions JSON from answer")
 
         duration_ms = int((time.monotonic() - t0) * 1000)
         routing_log = list(state.get("routing_log", []))
@@ -324,6 +343,7 @@ def build_graph(
         return {
             "answer": answer,
             "citations": citations,
+            "suggestions": suggestions,
             "routing_log": routing_log,
         }
 
@@ -348,16 +368,8 @@ def build_graph(
 
         valid_nodes = {"intake_extractor", "evidence_retriever", "answer_assembler"}
 
-        if "out_of_scope" in intent and not any(w in valid_nodes for w in next_workers):
+        if "out_of_scope" in intent:
             return "answer_assembler"
-
-        # If docs are already extracted and evidence is still needed, skip intake_extractor
-        already_extracted_ids = {d.get("openemr_doc_id") for d in state.get("extracted_docs", [])}
-        doc_ids = set(state.get("doc_ids", []))
-        docs_covered = doc_ids and doc_ids.issubset(already_extracted_ids)
-        needs_evidence = "needs_evidence" in intent or "evidence_retriever" in next_workers
-        if docs_covered and needs_evidence and not state.get("guideline_chunks"):
-            return "evidence_retriever"
 
         for worker in next_workers:
             if worker in valid_nodes:
@@ -372,9 +384,9 @@ def build_graph(
         route_from_supervisor,
     )
 
-    # After each worker, go straight to answer_assembler
-    workflow.add_edge("intake_extractor", "answer_assembler")
-    workflow.add_edge("evidence_retriever", "answer_assembler")
+    # After each worker, loop back to supervisor so it can dispatch remaining workers
+    workflow.add_edge("intake_extractor", "supervisor")
+    workflow.add_edge("evidence_retriever", "supervisor")
 
     # answer_assembler is terminal
     workflow.add_edge("answer_assembler", END)

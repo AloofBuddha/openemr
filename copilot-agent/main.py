@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 import os
+from pathlib import Path
 
 import anthropic
 from dotenv import load_dotenv
@@ -18,6 +19,31 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Clinical Co-Pilot Sidecar")
+
+# ---------------------------------------------------------------------------
+# Disk-backed extraction cache
+# ---------------------------------------------------------------------------
+
+_CACHE_DIR = Path("extraction_cache")
+_CACHE_DIR.mkdir(exist_ok=True)
+
+
+def _save_extraction(doc_id: int, data: dict) -> None:
+    try:
+        (_CACHE_DIR / f"{doc_id}.json").write_text(json.dumps(data))
+    except Exception:
+        logger.exception("Failed to persist extraction for doc_id=%d", doc_id)
+
+
+def _load_extraction(doc_id: int) -> dict | None:
+    path = _CACHE_DIR / f"{doc_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        logger.exception("Failed to load cached extraction for doc_id=%d", doc_id)
+        return None
 
 # ---------------------------------------------------------------------------
 # Startup: build RAG index and compile agent graph
@@ -44,11 +70,11 @@ else:
 from agent.graph import build_graph
 
 logger.info("Compiling agent graph...")
-graph = build_graph(anthropic_client, cohere_client, bm25, bm25_chunks, chroma_collection)
+graph = build_graph(anthropic_client, cohere_client, bm25, bm25_chunks, chroma_collection, _load_extraction)
 logger.info("Agent graph ready")
 
-# In-memory extraction cache: openemr_doc_id -> extraction result dict
-# Populated by /ingest, read by /query to pre-fill extracted_docs.
+# In-memory extraction cache: warm layer over the disk cache.
+# Populated by /ingest; /query falls back to disk on miss.
 _extraction_cache: dict[int, dict] = {}
 
 
@@ -115,6 +141,7 @@ async def ingest(req: IngestRequest):
 
     result_dict = result.model_dump()
     _extraction_cache[req.openemr_doc_id] = result_dict
+    _save_extraction(req.openemr_doc_id, result_dict)
     logger.info("Cached extraction for doc_id=%d", req.openemr_doc_id)
     return result_dict
 
@@ -128,15 +155,21 @@ async def query(req: QueryRequest):
         event: done    — empty payload, signals stream end
     """
     async def event_stream():
-        # Pre-populate extracted_docs from ingest cache so the graph can use them
-        pre_extracted = [
-            _extraction_cache[doc_id]
-            for doc_id in req.doc_ids
-            if doc_id in _extraction_cache
-        ]
-        missing_ids = [d for d in req.doc_ids if d not in _extraction_cache]
+        # Pre-populate extracted_docs — check in-memory cache first, then disk.
+        pre_extracted = []
+        missing_ids = []
+        for doc_id in req.doc_ids:
+            if doc_id in _extraction_cache:
+                pre_extracted.append(_extraction_cache[doc_id])
+            else:
+                on_disk = _load_extraction(doc_id)
+                if on_disk:
+                    _extraction_cache[doc_id] = on_disk  # warm in-memory cache
+                    pre_extracted.append(on_disk)
+                else:
+                    missing_ids.append(doc_id)
         if missing_ids:
-            logger.warning("doc_ids not in extraction cache (not yet ingested): %s", missing_ids)
+            logger.warning("doc_ids not found in any cache (not yet ingested): %s", missing_ids)
 
         state = {
             "query": req.query,
@@ -147,6 +180,7 @@ async def query(req: QueryRequest):
             "patient_context": req.patient_context,
             "answer": "",
             "citations": [],
+            "suggestions": [],
             "routing_log": [],
             "iteration": 0,
         }
@@ -158,10 +192,12 @@ async def query(req: QueryRequest):
             result = await graph.ainvoke(state)
             answer = result.get("answer") or "I was unable to generate an answer."
             citations = result.get("citations", [])
+            suggestions = result.get("suggestions", [])
         except Exception:
             logger.exception("Graph invocation failed for patient_id=%d", req.patient_id)
             answer = "An internal error occurred while processing your query."
             citations = []
+            suggestions = []
 
         # Emit citations metadata first so PHP can build the sources map
         yield f"event: citations\ndata: {json.dumps({'citations': citations})}\n\n"
@@ -173,6 +209,7 @@ async def query(req: QueryRequest):
             yield f"event: delta\ndata: {json.dumps({'text': answer[i:i + CHUNK]})}\n\n"
             await asyncio.sleep(DELAY)
 
+        yield f"event: suggestions\ndata: {json.dumps({'suggestions': suggestions})}\n\n"
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

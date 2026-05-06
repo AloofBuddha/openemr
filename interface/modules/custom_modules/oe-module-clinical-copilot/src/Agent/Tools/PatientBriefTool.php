@@ -30,6 +30,9 @@ class PatientBriefTool
      *   last_encounter: array<string,mixed>|null,
      *   active_medications: list<array<string,mixed>>,
      *   recent_labs: list<array<string,mixed>>,
+     *   allergies: list<array<string,mixed>>,
+     *   problems: list<array<string,mixed>>,
+     *   documents: list<array<string,mixed>>,
      *   data_hash: string
      * }
      */
@@ -44,6 +47,7 @@ class PatientBriefTool
         $labs         = $this->fetchRecentLabs($patientId);
         $allergies    = $this->fetchAllergies($patientId);
         $problems     = $this->fetchProblems($patientId);
+        $documents    = $this->fetchDocuments($patientId);
 
         $data = compact('demographics', 'appointment', 'encounter', 'medications', 'labs', 'allergies', 'problems');
         $dataHash = hash('sha256', json_encode($data) ?: '');
@@ -56,6 +60,7 @@ class PatientBriefTool
             'recent_labs'        => $labs,
             'allergies'          => $allergies,
             'problems'           => $problems,
+            'documents'          => $documents,
             'data_hash'          => $dataHash,
         ];
     }
@@ -149,7 +154,7 @@ class PatientBriefTool
             "SELECT id, drug, dosage, quantity, unit, route, `interval`, `note`
              FROM prescriptions
              WHERE patient_id = ? AND active = 1
-             ORDER BY drug ASC",
+             ORDER BY drug ASC LIMIT 25",
             [$patientId]
         );
         $meds = [];
@@ -205,6 +210,25 @@ class PatientBriefTool
             ];
         }
         return $problems;
+    }
+
+    private function fetchDocuments(int $patientId): array
+    {
+        $results = sqlStatement(
+            "SELECT id, name, date FROM documents
+             WHERE foreign_id = ? AND deleted = 0
+             ORDER BY date DESC LIMIT 10",
+            [$patientId]
+        );
+        $docs = [];
+        while ($row = sqlFetchArray($results)) {
+            $docs[] = [
+                'id'   => (int) $row['id'],
+                'name' => $row['name'] ?? 'Untitled',
+                'date' => $row['date'] ?? '',
+            ];
+        }
+        return $docs;
     }
 
     private function fetchRecentLabs(int $patientId): array

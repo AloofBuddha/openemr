@@ -100,9 +100,15 @@ $patientContextPost = trim((string) (filter_input(INPUT_POST, 'patient_context',
 if ($patientContextPost !== '') {
     $patientContext = $patientContextPost;
 } else {
-    $today          = date('Y-m-d');
-    $ctxKey         = "copilot_ctx_{$pid}_{$physicianId}_{$today}";
-    $patientContext = (string) ($session->get($ctxKey) ?? '');
+    $today   = date('Y-m-d');
+    $ctxKey  = "copilot_ctx_{$pid}_{$physicianId}_{$today}";
+    $ctxData = $session->get($ctxKey);
+    // Session stores an array with 'context_message' key; extract the string.
+    if (is_array($ctxData)) {
+        $patientContext = (string) ($ctxData['context_message'] ?? '');
+    } else {
+        $patientContext = (string) ($ctxData ?? '');
+    }
 }
 
 // --- SSE headers ---
@@ -178,14 +184,15 @@ if ($ch === false) {
 }
 
 // State shared with the write callback via references
-$lineBuffer     = '';
-$evtType        = '';
-$sourcesEmitted = false;
-$doneEmitted    = false;
-$gotAnyData     = false;
+$lineBuffer          = '';
+$evtType             = '';
+$sourcesEmitted      = false;
+$suggestionsEmitted  = false;
+$doneEmitted         = false;
+$gotAnyData          = false;
 
 $writeCallback = function (mixed $ch, string $data) use (
-    &$lineBuffer, &$evtType, &$sourcesEmitted, &$doneEmitted, &$gotAnyData, $pid
+    &$lineBuffer, &$evtType, &$sourcesEmitted, &$suggestionsEmitted, &$doneEmitted, &$gotAnyData, $pid
 ): int {
     $gotAnyData = true;
     $lineBuffer .= $data;
@@ -220,12 +227,19 @@ $writeCallback = function (mixed $ch, string $data) use (
                 // Forward chunk directly — already JSON {text: "..."}
                 sseEmit('delta', $payload);
 
+            } elseif ($evtType === 'suggestions' && !$suggestionsEmitted) {
+                sseEmit('suggestions', $payload);
+                $suggestionsEmitted = true;
+
             } elseif ($evtType === 'done' && !$doneEmitted) {
-                sseEmit('suggestions', json_encode(['suggestions' => [
-                    'What are the treatment recommendations?',
-                    'Check for drug interactions',
-                    'What follow-up is needed?',
-                ]]));
+                if (!$suggestionsEmitted) {
+                    // Sidecar didn't emit suggestions — use generic fallback
+                    sseEmit('suggestions', json_encode(['suggestions' => [
+                        'What are the treatment recommendations?',
+                        'Check for drug interactions',
+                        'What follow-up is needed?',
+                    ]]));
+                }
                 sseEmit('done', '{}');
                 $doneEmitted = true;
             }

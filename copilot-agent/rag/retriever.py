@@ -41,7 +41,8 @@ def _dense_top_ids(
     n: int,
 ) -> dict[str, float]:
     """Return {chunk_id: normalised_cosine_score} for top-n dense hits."""
-    results = chroma_collection.query(query_texts=[query], n_results=n)
+    n_capped = min(n, max(1, chroma_collection.count()))
+    results = chroma_collection.query(query_texts=[query], n_results=n_capped)
 
     ids: list[str] = results["ids"][0] if results["ids"] else []
     distances: list[float] = results["distances"][0] if results["distances"] else []

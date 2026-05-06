@@ -147,8 +147,14 @@ Rules:
 
 
 # ---------------------------------------------------------------------------
-# Path detection
+# Path detection + helpers
 # ---------------------------------------------------------------------------
+
+
+def _single_image_as_pages(file_bytes: bytes) -> list[tuple[str, int]]:
+    """Wrap a raw image file as a single-page list compatible with the vision helpers."""
+    b64 = base64.standard_b64encode(file_bytes).decode()
+    return [(b64, 1)]
 
 
 def _pdf_text_is_usable(pdf_bytes: bytes) -> tuple[bool, str]:
@@ -343,13 +349,12 @@ async def _extract_lab_text(
     )
 
 
-async def _extract_lab_vision(
-    pdf_bytes: bytes,
+async def _extract_lab_vision_pages(
+    page_images: list[tuple[str, int]],
     patient_id: int,
     openemr_doc_id: int,
     anthropic_client: anthropic.AsyncAnthropic,
 ) -> LabExtraction:
-    page_images = _pdf_to_b64_images(pdf_bytes)
     if not page_images:
         return LabExtraction(
             doc_type="lab_pdf",
@@ -402,6 +407,17 @@ async def _extract_lab_vision(
         openemr_doc_id=openemr_doc_id,
         results=all_results,
         extraction_warnings=all_warnings,
+    )
+
+
+async def _extract_lab_vision(
+    pdf_bytes: bytes,
+    patient_id: int,
+    openemr_doc_id: int,
+    anthropic_client: anthropic.AsyncAnthropic,
+) -> LabExtraction:
+    return await _extract_lab_vision_pages(
+        _pdf_to_b64_images(pdf_bytes), patient_id, openemr_doc_id, anthropic_client
     )
 
 
@@ -475,14 +491,12 @@ async def _extract_intake_text(
     )
 
 
-async def _extract_intake_vision(
-    pdf_bytes: bytes,
+async def _extract_intake_vision_pages(
+    page_images: list[tuple[str, int]],
     patient_id: int,
     openemr_doc_id: int,
     anthropic_client: anthropic.AsyncAnthropic,
 ) -> IntakeExtraction:
-    page_images = _pdf_to_b64_images(pdf_bytes)
-
     fallback_citation = SourceCitation(
         source_type="intake_form",
         source_id=str(openemr_doc_id),
@@ -581,6 +595,17 @@ async def _extract_intake_vision(
     )
 
 
+async def _extract_intake_vision(
+    pdf_bytes: bytes,
+    patient_id: int,
+    openemr_doc_id: int,
+    anthropic_client: anthropic.AsyncAnthropic,
+) -> IntakeExtraction:
+    return await _extract_intake_vision_pages(
+        _pdf_to_b64_images(pdf_bytes), patient_id, openemr_doc_id, anthropic_client
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -623,40 +648,8 @@ async def extract_document(
     if doc_type == "lab_pdf":
         if use_vision:
             if mimetype != "application/pdf":
-                # Single image — encode directly
-                b64 = base64.standard_b64encode(file_bytes).decode()
-                raw = await _call_claude_vision(_LAB_VISION_PROMPT, b64, anthropic_client)
-                data = _parse_json_response(raw)
-                raw_results = data.get("results", [])
-                raw_results, threshold_warnings = _threshold_warnings_lab(raw_results)
-                extraction_warnings: list[str] = list(data.get("extraction_warnings", [])) + threshold_warnings
-                results: list[LabResult] = []
-                for r in raw_results:
-                    citation = SourceCitation(
-                        source_type="lab_pdf",
-                        source_id=str(openemr_doc_id),
-                        page_or_section="page 1",
-                        field_or_chunk_id=r.get("test_name", "unknown"),
-                        quote_or_value=str(r.get("value", "")),
-                    )
-                    results.append(
-                        LabResult(
-                            test_name=r.get("test_name", ""),
-                            value=str(r.get("value", "")) if r.get("value") is not None else "",
-                            unit=r.get("unit"),
-                            reference_range=r.get("reference_range"),
-                            collection_date=r.get("collection_date"),
-                            abnormal_flag=r.get("abnormal_flag"),
-                            confidence=float(r.get("confidence", 1.0)),
-                            source_citation=citation,
-                        )
-                    )
-                return LabExtraction(
-                    doc_type="lab_pdf",
-                    patient_id=patient_id,
-                    openemr_doc_id=openemr_doc_id,
-                    results=results,
-                    extraction_warnings=extraction_warnings,
+                return await _extract_lab_vision_pages(
+                    _single_image_as_pages(file_bytes), patient_id, openemr_doc_id, anthropic_client
                 )
             return await _extract_lab_vision(file_bytes, patient_id, openemr_doc_id, anthropic_client)
         return await _extract_lab_text(extracted_text, patient_id, openemr_doc_id, anthropic_client)
@@ -664,47 +657,8 @@ async def extract_document(
     if doc_type == "intake_form":
         if use_vision:
             if mimetype != "application/pdf":
-                b64 = base64.standard_b64encode(file_bytes).decode()
-                raw = await _call_claude_vision(_INTAKE_VISION_PROMPT, b64, anthropic_client)
-                data = _parse_json_response(raw)
-                threshold_warnings = _threshold_warnings_intake(data)
-                extraction_warnings = list(data.get("extraction_warnings", [])) + threshold_warnings
-                citation = SourceCitation(
-                    source_type="intake_form",
-                    source_id=str(openemr_doc_id),
-                    page_or_section="page 1",
-                    field_or_chunk_id="intake_form",
-                    quote_or_value="",
-                )
-                demo_data = data.get("demographics") or {}
-                return IntakeExtraction(
-                    doc_type="intake_form",
-                    patient_id=patient_id,
-                    openemr_doc_id=openemr_doc_id,
-                    demographics=Demographics(**demo_data) if demo_data else None,
-                    chief_concern=data.get("chief_concern"),
-                    current_medications=[
-                        MedicationEntry(
-                            name=m["name"],
-                            dose=m.get("dose"),
-                            frequency=m.get("frequency"),
-                            confidence=float(m.get("confidence", 1.0)),
-                        )
-                        for m in data.get("current_medications", [])
-                        if m.get("name")
-                    ],
-                    allergies=[
-                        AllergyEntry(
-                            allergen=a["allergen"],
-                            reaction=a.get("reaction"),
-                            confidence=float(a.get("confidence", 1.0)),
-                        )
-                        for a in data.get("allergies", [])
-                        if a.get("allergen")
-                    ],
-                    family_history=data.get("family_history", []),
-                    source_citation=citation,
-                    extraction_warnings=extraction_warnings,
+                return await _extract_intake_vision_pages(
+                    _single_image_as_pages(file_bytes), patient_id, openemr_doc_id, anthropic_client
                 )
             return await _extract_intake_vision(file_bytes, patient_id, openemr_doc_id, anthropic_client)
         return await _extract_intake_text(extracted_text, patient_id, openemr_doc_id, anthropic_client)

@@ -403,6 +403,13 @@ PROMPT;
             }
         }
 
+        // ── Documents ─────────────────────────────────────────────────────────
+        $documents = $patientData['documents'] ?? [];
+        foreach ($documents as $doc) {
+            $lines[] = "[{$idx}] Document on file: {$doc['name']}" . (!empty($doc['date']) ? " ({$doc['date']})" : '');
+            $idx++;
+        }
+
         $demo    = $patientData['demographics'];
         $name    = $demo['name'] ?? 'Unknown';
         $age     = $demo['age'] ?? '';
@@ -450,24 +457,6 @@ TEXT;
             ];
         }
 
-        $pid  = (int) ($patientData['demographics']['pid'] ?? 0);
-        $docs = [];
-        if ($pid > 0) {
-            $docResults = sqlStatement(
-                "SELECT id, name, date FROM documents
-                 WHERE foreign_id = ? AND deleted = 0
-                 ORDER BY date DESC LIMIT 10",
-                [$pid]
-            );
-            while ($row = sqlFetchArray($docResults)) {
-                $docs[] = [
-                    'id'   => (int) $row['id'],
-                    'name' => $row['name'] ?? 'Untitled',
-                    'date' => $row['date'] ?? '',
-                ];
-            }
-        }
-
         return [
             'patient'     => [
                 'name' => $demo['name'] ?? '',
@@ -487,7 +476,7 @@ TEXT;
             ], $patientData['active_medications'] ?? []),
             'allergies'   => $patientData['allergies'] ?? [],
             'labs'        => $labs,
-            'documents'   => $docs,
+            'documents'   => $patientData['documents'] ?? [],
         ];
     }
 

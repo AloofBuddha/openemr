@@ -27,6 +27,7 @@ class AgentState(TypedDict):
     patient_context: str           # pre-built patient record context (from PHP)
     answer: str
     citations: list[dict]
+    suggestions: list[str]
     routing_log: list[dict]        # each: {node, decision, duration_ms}
     iteration: int
     _supervisor_decision: dict     # persisted so the conditional edge can read it
@@ -79,37 +80,7 @@ Rules:
 """
 
 
-def make_supervisor_decision(
-    state: AgentState,
-    anthropic_client: anthropic.AsyncAnthropic,
-) -> SupervisorDecision:
-    """Synchronous wrapper — callers in the graph run this via asyncio.
-
-    The supervisor calls Claude Haiku to classify query intent and decide
-    which workers to dispatch.  This function is intentionally sync because
-    LangGraph node functions can be sync; async graph nodes use ainvoke.
-    """
-    # This is called from async graph nodes via await asyncio.to_thread or
-    # directly from async context; keep it sync for simplicity — Haiku is fast.
-    import asyncio
-
-    async def _call() -> SupervisorDecision:
-        return await _async_make_supervisor_decision(state, anthropic_client)
-
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Inside an async context (FastAPI / LangGraph async invoke)
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, _call())
-                return future.result()
-        return loop.run_until_complete(_call())
-    except RuntimeError:
-        return asyncio.run(_call())
-
-
-async def _async_make_supervisor_decision(
+async def make_supervisor_decision(
     state: AgentState,
     anthropic_client: anthropic.AsyncAnthropic,
 ) -> SupervisorDecision:
