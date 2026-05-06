@@ -1,128 +1,96 @@
+"""Clinical Co-Pilot sidecar — FastAPI surface.
+
+Endpoints:
+    POST /ingest  — extract structured data from an uploaded document
+    POST /query   — run the multi-agent graph and stream the answer as SSE
+    GET  /health  — liveness probe
+
+All heavy initialisation (RAG index, Anthropic client, graph compile) lives
+in the lifespan context, so this module is cheap to import for tests.
+"""
 from __future__ import annotations
 
-import asyncio
 import base64
-import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncIterator
 
 import anthropic
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+
+from agent.extractor import extract_document
+from agent.graph import build_graph
+from api_models import IngestRequest, QueryRequest
+from cache import ExtractionCache
+from rag.indexer import build_index
+from sse import event, stream_text_in_chunks
 
 load_dotenv()
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Clinical Co-Pilot Sidecar")
-
-# ---------------------------------------------------------------------------
-# Disk-backed extraction cache
-# ---------------------------------------------------------------------------
-
 _CACHE_DIR = Path("extraction_cache")
-_CACHE_DIR.mkdir(exist_ok=True)
 
 
-def _save_extraction(doc_id: int, data: dict) -> None:
-    try:
-        (_CACHE_DIR / f"{doc_id}.json").write_text(json.dumps(data))
-    except Exception:
-        logger.exception("Failed to persist extraction for doc_id=%d", doc_id)
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Build indices, clients, and the agent graph before serving requests."""
+    logger.info("Building RAG index...")
+    bm25, bm25_chunks, chroma_collection = build_index()
+    logger.info("RAG index built: %d chunks", len(bm25_chunks))
+
+    anthropic_client = anthropic.AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+    cohere_key = os.environ.get("COHERE_API_KEY")
+    if cohere_key:
+        import cohere
+        cohere_client = cohere.ClientV2(cohere_key)
+        logger.info("Cohere reranking enabled")
+    else:
+        cohere_client = None
+        logger.info("COHERE_API_KEY not set — using score-based ranking fallback")
+
+    extraction_cache = ExtractionCache(_CACHE_DIR)
+
+    logger.info("Compiling agent graph...")
+    graph = build_graph(
+        anthropic_client,
+        cohere_client,
+        bm25,
+        bm25_chunks,
+        chroma_collection,
+        extraction_cache.get,
+    )
+    logger.info("Agent graph ready")
+
+    app.state.anthropic_client = anthropic_client
+    app.state.graph = graph
+    app.state.extraction_cache = extraction_cache
+
+    yield
 
 
-def _load_extraction(doc_id: int) -> dict | None:
-    path = _CACHE_DIR / f"{doc_id}.json"
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text())
-    except Exception:
-        logger.exception("Failed to load cached extraction for doc_id=%d", doc_id)
-        return None
-
-# ---------------------------------------------------------------------------
-# Startup: build RAG index and compile agent graph
-# ---------------------------------------------------------------------------
-
-from rag.indexer import build_index
-
-logger.info("Building RAG index...")
-bm25, bm25_chunks, chroma_collection = build_index()
-logger.info("RAG index built: %d chunks", len(bm25_chunks))
-
-# Clients
-anthropic_client = anthropic.AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-
-_cohere_key = os.environ.get("COHERE_API_KEY")
-if _cohere_key:
-    import cohere
-    cohere_client = cohere.ClientV2(_cohere_key)
-    logger.info("Cohere reranking enabled")
-else:
-    cohere_client = None
-    logger.info("COHERE_API_KEY not set — using score-based ranking fallback")
-
-from agent.graph import build_graph
-
-logger.info("Compiling agent graph...")
-graph = build_graph(anthropic_client, cohere_client, bm25, bm25_chunks, chroma_collection, _load_extraction)
-logger.info("Agent graph ready")
-
-# In-memory extraction cache: warm layer over the disk cache.
-# Populated by /ingest; /query falls back to disk on miss.
-_extraction_cache: dict[int, dict] = {}
-
-
-# ---------------------------------------------------------------------------
-# Request / response models
-# ---------------------------------------------------------------------------
-
-
-class IngestRequest(BaseModel):
-    patient_id: int
-    openemr_doc_id: int
-    doc_type: str        # "lab_pdf" or "intake_form"
-    file_bytes_b64: str  # base64-encoded file bytes
-    mimetype: str
-
-
-class QueryRequest(BaseModel):
-    patient_id: int
-    query: str
-    patient_context: str    # pre-built context string from PHP
-    doc_ids: list[int] = [] # openemr_doc_ids of recently uploaded docs
-
-
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
+app = FastAPI(title="Clinical Co-Pilot Sidecar", lifespan=lifespan)
 
 
 @app.post("/ingest")
-async def ingest(req: IngestRequest):
+async def ingest(req: IngestRequest, request: Request) -> dict:
     """Extract structured data from an uploaded document.
 
-    Accepts base64-encoded file bytes, runs Claude extraction (text or vision
-    path depending on content), and returns a LabExtraction or IntakeExtraction
-    as JSON.
+    Returns a LabExtraction or IntakeExtraction as JSON. The result is cached
+    (memory + disk) so a follow-up ``/query`` referencing this doc_id reuses
+    it instead of paying for re-extraction.
     """
-    from agent.intake_extractor import extract_document
-
-    if req.doc_type not in ("lab_pdf", "intake_form"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown doc_type '{req.doc_type}'. Must be 'lab_pdf' or 'intake_form'.",
-        )
-
     try:
         file_bytes = base64.b64decode(req.file_bytes_b64)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail="Invalid base64 encoding in file_bytes_b64.") from exc
+        raise HTTPException(
+            status_code=400, detail="Invalid base64 encoding in file_bytes_b64."
+        ) from exc
 
     try:
         result = await extract_document(
@@ -131,7 +99,7 @@ async def ingest(req: IngestRequest):
             doc_type=req.doc_type,
             patient_id=req.patient_id,
             openemr_doc_id=req.openemr_doc_id,
-            anthropic_client=anthropic_client,
+            anthropic_client=request.app.state.anthropic_client,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -140,81 +108,83 @@ async def ingest(req: IngestRequest):
         raise HTTPException(status_code=500, detail="Document extraction failed.") from exc
 
     result_dict = result.model_dump()
-    _extraction_cache[req.openemr_doc_id] = result_dict
-    _save_extraction(req.openemr_doc_id, result_dict)
+    request.app.state.extraction_cache.set(req.openemr_doc_id, result_dict)
     logger.info("Cached extraction for doc_id=%d", req.openemr_doc_id)
     return result_dict
 
 
 @app.post("/query")
-async def query(req: QueryRequest):
-    """Run the multi-agent LangGraph pipeline and stream the answer as SSE.
+async def query(req: QueryRequest, request: Request) -> StreamingResponse:
+    """Run the multi-agent graph and stream the answer as SSE.
 
-    Events emitted:
-        event: answer  — JSON with {text, routing_log}
-        event: done    — empty payload, signals stream end
+    Event sequence::
+
+        status      — UI hint while the graph runs
+        citations   — JSON {citations: [...]} so PHP can build the source map
+        delta       — repeated; small text chunks of the streaming answer
+        suggestions — JSON {suggestions: [...]} for follow-up question chips
+        done        — terminator
     """
-    async def event_stream():
-        # Pre-populate extracted_docs — check in-memory cache first, then disk.
-        pre_extracted = []
-        missing_ids = []
-        for doc_id in req.doc_ids:
-            if doc_id in _extraction_cache:
-                pre_extracted.append(_extraction_cache[doc_id])
-            else:
-                on_disk = _load_extraction(doc_id)
-                if on_disk:
-                    _extraction_cache[doc_id] = on_disk  # warm in-memory cache
-                    pre_extracted.append(on_disk)
-                else:
-                    missing_ids.append(doc_id)
-        if missing_ids:
-            logger.warning("doc_ids not found in any cache (not yet ingested): %s", missing_ids)
+    return StreamingResponse(
+        _query_stream(req, request.app.state),
+        media_type="text/event-stream",
+    )
 
-        state = {
-            "query": req.query,
-            "patient_id": req.patient_id,
-            "doc_ids": req.doc_ids,
-            "extracted_docs": pre_extracted,
-            "guideline_chunks": [],
-            "patient_context": req.patient_context,
-            "answer": "",
-            "citations": [],
-            "suggestions": [],
-            "routing_log": [],
-            "iteration": 0,
-        }
 
-        # Let the UI know work is in progress before the slow graph call
-        yield f"event: status\ndata: {json.dumps({'text': 'Searching clinical guidelines...'})}\n\n"
+async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
+    pre_extracted, missing_ids = _gather_extractions(req.doc_ids, state.extraction_cache)
+    if missing_ids:
+        logger.warning("doc_ids not found in any cache (not yet ingested): %s", missing_ids)
 
-        try:
-            result = await graph.ainvoke(state)
-            answer = result.get("answer") or "I was unable to generate an answer."
-            citations = result.get("citations", [])
-            suggestions = result.get("suggestions", [])
-        except Exception:
-            logger.exception("Graph invocation failed for patient_id=%d", req.patient_id)
-            answer = "An internal error occurred while processing your query."
-            citations = []
-            suggestions = []
+    initial_state = {
+        "query": req.query,
+        "patient_id": req.patient_id,
+        "doc_ids": req.doc_ids,
+        "extracted_docs": pre_extracted,
+        "guideline_chunks": [],
+        "patient_context": req.patient_context,
+        "answer": "",
+        "citations": [],
+        "suggestions": [],
+        "routing_log": [],
+        "iteration": 0,
+    }
 
-        # Emit citations metadata first so PHP can build the sources map
-        yield f"event: citations\ndata: {json.dumps({'citations': citations})}\n\n"
+    yield event("status", {"text": "Searching clinical guidelines..."})
 
-        # Stream answer text in chunks so the browser gets progressive rendering
-        CHUNK = 12
-        DELAY = 0.015  # 15 ms → ~67 chunks/sec, readable streaming speed
-        for i in range(0, len(answer), CHUNK):
-            yield f"event: delta\ndata: {json.dumps({'text': answer[i:i + CHUNK]})}\n\n"
-            await asyncio.sleep(DELAY)
+    try:
+        result = await state.graph.ainvoke(initial_state)
+        answer = result.get("answer") or "I was unable to generate an answer."
+        citations = result.get("citations", [])
+        suggestions = result.get("suggestions", [])
+    except Exception:
+        logger.exception("Graph invocation failed for patient_id=%d", req.patient_id)
+        answer = "An internal error occurred while processing your query."
+        citations = []
+        suggestions = []
 
-        yield f"event: suggestions\ndata: {json.dumps({'suggestions': suggestions})}\n\n"
-        yield "event: done\ndata: {}\n\n"
+    yield event("citations", {"citations": citations})
+    async for chunk in stream_text_in_chunks(answer):
+        yield chunk
+    yield event("suggestions", {"suggestions": suggestions})
+    yield event("done", "{}")
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+def _gather_extractions(
+    doc_ids: list[int], cache: ExtractionCache
+) -> tuple[list[dict], list[int]]:
+    """Return (cached_extractions, missing_doc_ids) for the requested docs."""
+    found: list[dict] = []
+    missing: list[int] = []
+    for doc_id in doc_ids:
+        data = cache.get(doc_id)
+        if data is not None:
+            found.append(data)
+        else:
+            missing.append(doc_id)
+    return found, missing
 
 
 @app.get("/health")
-def health():
+def health() -> dict:
     return {"status": "ok"}

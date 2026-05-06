@@ -21,6 +21,7 @@
  */
 
 require_once dirname(__FILE__, 5) . '/globals.php';
+require_once __DIR__ . '/_bootstrap.php';
 
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Session\SessionTracker;
@@ -28,18 +29,6 @@ use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Modules\ClinicalCopilot\Authorization\PatientAccessGuard;
 use OpenEMR\Modules\ClinicalCopilot\Authorization\UnauthorizedPatientAccessException;
 use OpenEMR\Modules\ClinicalCopilot\Observability\AgentAuditLogger;
-
-spl_autoload_register(function (string $class): void {
-    $prefix = 'OpenEMR\\Modules\\ClinicalCopilot\\';
-    if (!str_starts_with($class, $prefix)) {
-        return;
-    }
-    $relative = str_replace('\\', '/', substr($class, strlen($prefix)));
-    $file = dirname(__DIR__) . '/src/' . $relative . '.php';
-    if (file_exists($file)) {
-        require_once $file;
-    }
-});
 
 // --- Auth ---
 $session     = SessionWrapperFactory::getInstance()->getActiveSession();

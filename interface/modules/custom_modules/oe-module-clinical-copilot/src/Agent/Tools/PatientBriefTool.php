@@ -14,11 +14,24 @@ declare(strict_types=1);
 
 namespace OpenEMR\Modules\ClinicalCopilot\Agent\Tools;
 
+use OpenEMR\Common\Database\QueryUtils;
 use OpenEMR\Modules\ClinicalCopilot\Authorization\PatientAccessGuard;
 
-class PatientBriefTool
+/**
+ * Pure data-gathering tool: assembles a structured patient snapshot for the
+ * orchestrator. No side effects beyond reads. Calls the access guard up
+ * front (defence-in-depth — public endpoints check too).
+ */
+final class PatientBriefTool
 {
-    public function __construct(private readonly PatientAccessGuard $accessGuard) {}
+    private const MAX_ACTIVE_MEDS  = 25;
+    private const MAX_RECENT_LABS  = 20;
+    private const MAX_DOCUMENTS    = 10;
+    private const APPT_HORIZON_DAYS = 60;
+
+    public function __construct(private readonly PatientAccessGuard $accessGuard)
+    {
+    }
 
     /**
      * Returns structured patient context for LLM consumption.
@@ -32,45 +45,32 @@ class PatientBriefTool
      *   recent_labs: list<array<string,mixed>>,
      *   allergies: list<array<string,mixed>>,
      *   problems: list<array<string,mixed>>,
-     *   documents: list<array<string,mixed>>,
-     *   data_hash: string
+     *   documents: list<array<string,mixed>>
      * }
      */
     public function gather(int $patientId, int $physicianId): array
     {
         $this->accessGuard->assertAccess($physicianId, $patientId);
 
-        $demographics = $this->fetchDemographics($patientId);
-        $appointment  = $this->fetchTodayAppointment($patientId, $physicianId);
-        $encounter    = $this->fetchLastEncounter($patientId);
-        $medications  = $this->fetchActiveMedications($patientId);
-        $labs         = $this->fetchRecentLabs($patientId);
-        $allergies    = $this->fetchAllergies($patientId);
-        $problems     = $this->fetchProblems($patientId);
-        $documents    = $this->fetchDocuments($patientId);
-
-        $data = compact('demographics', 'appointment', 'encounter', 'medications', 'labs', 'allergies', 'problems');
-        $dataHash = hash('sha256', json_encode($data) ?: '');
-
         return [
-            'demographics'       => $demographics,
-            'today_appointment'  => $appointment,
-            'last_encounter'     => $encounter,
-            'active_medications' => $medications,
-            'recent_labs'        => $labs,
-            'allergies'          => $allergies,
-            'problems'           => $problems,
-            'documents'          => $documents,
-            'data_hash'          => $dataHash,
+            'demographics'       => $this->fetchDemographics($patientId),
+            'today_appointment'  => $this->fetchUpcomingAppointment($patientId),
+            'last_encounter'     => $this->fetchLastEncounter($patientId),
+            'active_medications' => $this->fetchActiveMedications($patientId),
+            'recent_labs'        => $this->fetchRecentLabs($patientId),
+            'allergies'          => $this->fetchAllergies($patientId),
+            'problems'           => $this->fetchProblems($patientId),
+            'documents'          => $this->fetchDocuments($patientId),
         ];
     }
 
+    /** @return array<string,mixed> */
     private function fetchDemographics(int $patientId): array
     {
-        $row = sqlQuery(
-            "SELECT pid, fname, lname, DOB, sex, phone_cell, phone_home,
+        $row = QueryUtils::querySingleRow(
+            'SELECT pid, fname, lname, DOB, sex, phone_cell, phone_home,
                     street, city, state
-             FROM patient_data WHERE pid = ? LIMIT 1",
+             FROM patient_data WHERE pid = ? LIMIT 1',
             [$patientId]
         );
         if (empty($row)) {
@@ -80,9 +80,7 @@ class PatientBriefTool
         $age = '';
         if ($dob) {
             try {
-                $dobDate  = new \DateTimeImmutable($dob);
-                $now      = new \DateTimeImmutable();
-                $age      = (string) $dobDate->diff($now)->y;
+                $age = (string) (new \DateTimeImmutable($dob))->diff(new \DateTimeImmutable())->y;
             } catch (\Throwable) {
                 $age = '';
             }
@@ -97,16 +95,24 @@ class PatientBriefTool
         ];
     }
 
-    private function fetchTodayAppointment(int $patientId, int $physicianId): ?array
+    /**
+     * Today first; otherwise the next appointment within the horizon.
+     *
+     * Named "today_appointment" in the public API for backwards-compatibility,
+     * but the lookup window is wider — useful when the physician opens a chart
+     * a few days before the visit.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function fetchUpcomingAppointment(int $patientId): ?array
     {
-        // Try today first; fall back to next upcoming appointment within 60 days
         $today   = date('Y-m-d');
-        $horizon = date('Y-m-d', strtotime('+60 days'));
-        $row = sqlQuery(
-            "SELECT pc_eid, pc_eventDate, pc_startTime, pc_title, pc_hometext
+        $horizon = date('Y-m-d', strtotime('+' . self::APPT_HORIZON_DAYS . ' days'));
+        $row = QueryUtils::querySingleRow(
+            'SELECT pc_eid, pc_eventDate, pc_startTime, pc_title, pc_hometext
              FROM openemr_postcalendar_events
              WHERE pc_pid = ? AND pc_eventDate >= ? AND pc_eventDate <= ?
-             ORDER BY pc_eventDate ASC, pc_startTime ASC LIMIT 1",
+             ORDER BY pc_eventDate ASC, pc_startTime ASC LIMIT 1',
             [$patientId, $today, $horizon]
         );
         if (empty($row)) {
@@ -120,9 +126,10 @@ class PatientBriefTool
         ];
     }
 
+    /** @return array<string,mixed>|null */
     private function fetchLastEncounter(int $patientId): ?array
     {
-        $row = sqlQuery(
+        $row = QueryUtils::querySingleRow(
             "SELECT fe.encounter, fe.date, fe.reason,
                     fs.subjective, fs.objective, fs.assessment, fs.plan
              FROM form_encounter fe
@@ -140,120 +147,105 @@ class PatientBriefTool
             'date'         => $row['date'] ?? '',
             'reason'       => $row['reason'] ?? '',
             'soap'         => [
-                'subjective'  => $row['subjective'] ?? '',
-                'objective'   => $row['objective'] ?? '',
-                'assessment'  => $row['assessment'] ?? '',
-                'plan'        => $row['plan'] ?? '',
+                'subjective' => $row['subjective'] ?? '',
+                'objective'  => $row['objective'] ?? '',
+                'assessment' => $row['assessment'] ?? '',
+                'plan'       => $row['plan'] ?? '',
             ],
         ];
     }
 
+    /** @return list<array<string,mixed>> */
     private function fetchActiveMedications(int $patientId): array
     {
-        $results = sqlStatement(
-            "SELECT id, drug, dosage, quantity, unit, route, `interval`, `note`
+        $rows = QueryUtils::fetchRecords(
+            'SELECT id, drug, dosage, quantity, unit, route, `interval`, `note`
              FROM prescriptions
              WHERE patient_id = ? AND active = 1
-             ORDER BY drug ASC LIMIT 25",
+             ORDER BY drug ASC LIMIT ' . self::MAX_ACTIVE_MEDS,
             [$patientId]
         );
-        $meds = [];
-        while ($row = sqlFetchArray($results)) {
-            $meds[] = [
-                'id'       => (int) $row['id'],
-                'drug'     => $row['drug'] ?? '',
-                'dosage'   => $row['dosage'] ?? '',
-                'unit'     => $row['unit'] ?? '',
-                'route'    => $row['route'] ?? '',
-                'interval' => $row['interval'] ?? '',
-                'note'     => $row['note'] ?? '',
-            ];
-        }
-        return $meds;
+        return array_map(static fn(array $row): array => [
+            'id'       => (int) $row['id'],
+            'drug'     => $row['drug'] ?? '',
+            'dosage'   => $row['dosage'] ?? '',
+            'unit'     => $row['unit'] ?? '',
+            'route'    => $row['route'] ?? '',
+            'interval' => $row['interval'] ?? '',
+            'note'     => $row['note'] ?? '',
+        ], $rows);
     }
 
+    /** @return list<array<string,mixed>> */
     private function fetchAllergies(int $patientId): array
     {
-        $results = sqlStatement(
+        $rows = QueryUtils::fetchRecords(
             "SELECT title, extrainfo, comments
              FROM lists
              WHERE pid = ? AND type = 'allergy' AND activity = 1
              ORDER BY title ASC",
             [$patientId]
         );
-        $allergies = [];
-        while ($row = sqlFetchArray($results)) {
-            $allergies[] = [
-                'title'    => $row['title'] ?? '',
-                'reaction' => $row['extrainfo'] ?? '',
-                'severity' => $row['comments'] ?? '',
-            ];
-        }
-        return $allergies;
+        return array_map(static fn(array $row): array => [
+            'title'    => $row['title'] ?? '',
+            'reaction' => $row['extrainfo'] ?? '',
+            'severity' => $row['comments'] ?? '',
+        ], $rows);
     }
 
+    /** @return list<array<string,mixed>> */
     private function fetchProblems(int $patientId): array
     {
-        $results = sqlStatement(
+        $rows = QueryUtils::fetchRecords(
             "SELECT title, diagnosis, begdate
              FROM lists
              WHERE pid = ? AND type = 'medical_problem' AND activity = 1
              ORDER BY title ASC",
             [$patientId]
         );
-        $problems = [];
-        while ($row = sqlFetchArray($results)) {
-            $problems[] = [
-                'title'   => $row['title'] ?? '',
-                'icd10'   => $row['diagnosis'] ?? '',
-                'since'   => $row['begdate'] ?? '',
-            ];
-        }
-        return $problems;
+        return array_map(static fn(array $row): array => [
+            'title' => $row['title'] ?? '',
+            'icd10' => $row['diagnosis'] ?? '',
+            'since' => $row['begdate'] ?? '',
+        ], $rows);
     }
 
+    /** @return list<array<string,mixed>> */
     private function fetchDocuments(int $patientId): array
     {
-        $results = sqlStatement(
-            "SELECT id, name, date FROM documents
+        $rows = QueryUtils::fetchRecords(
+            'SELECT id, name, date FROM documents
              WHERE foreign_id = ? AND deleted = 0
-             ORDER BY date DESC LIMIT 10",
+             ORDER BY date DESC LIMIT ' . self::MAX_DOCUMENTS,
             [$patientId]
         );
-        $docs = [];
-        while ($row = sqlFetchArray($results)) {
-            $docs[] = [
-                'id'   => (int) $row['id'],
-                'name' => $row['name'] ?? 'Untitled',
-                'date' => $row['date'] ?? '',
-            ];
-        }
-        return $docs;
+        return array_map(static fn(array $row): array => [
+            'id'   => (int) $row['id'],
+            'name' => $row['name'] ?? 'Untitled',
+            'date' => $row['date'] ?? '',
+        ], $rows);
     }
 
+    /** @return list<array<string,mixed>> */
     private function fetchRecentLabs(int $patientId): array
     {
-        $results = sqlStatement(
-            "SELECT pr.result_code, pr.result_text, pr.result, pr.units,
+        $rows = QueryUtils::fetchRecords(
+            'SELECT pr.result_code, pr.result_text, pr.result, pr.units,
                     pr.range, pr.abnormal, prep.date_collected
              FROM procedure_result pr
              JOIN procedure_report prep ON prep.procedure_report_id = pr.procedure_report_id
              JOIN procedure_order po ON po.procedure_order_id = prep.procedure_order_id
              WHERE po.patient_id = ? AND prep.date_collected IS NOT NULL
-             ORDER BY prep.date_collected DESC LIMIT 20",
+             ORDER BY prep.date_collected DESC LIMIT ' . self::MAX_RECENT_LABS,
             [$patientId]
         );
-        $labs = [];
-        while ($row = sqlFetchArray($results)) {
-            $labs[] = [
-                'test'          => $row['result_text'] ?: ($row['result_code'] ?? ''),
-                'value'         => $row['result'] ?? '',
-                'units'         => $row['units'] ?? '',
-                'range'         => $row['range'] ?? '',
-                'abnormal'      => $row['abnormal'] ?? '',
-                'date_collected' => $row['date_collected'] ?? '',
-            ];
-        }
-        return $labs;
+        return array_map(static fn(array $row): array => [
+            'test'           => $row['result_text'] ?: ($row['result_code'] ?? ''),
+            'value'          => $row['result'] ?? '',
+            'units'          => $row['units'] ?? '',
+            'range'          => $row['range'] ?? '',
+            'abnormal'       => $row['abnormal'] ?? '',
+            'date_collected' => $row['date_collected'] ?? '',
+        ], $rows);
     }
 }

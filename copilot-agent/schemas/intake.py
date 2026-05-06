@@ -24,6 +24,7 @@ class MedicationEntry(BaseModel):
     dose: str | None = None
     frequency: str | None = None
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
+    source_citation: SourceCitation
 
 
 class AllergyEntry(BaseModel):
@@ -32,10 +33,17 @@ class AllergyEntry(BaseModel):
     allergen: str
     reaction: str | None = None
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
+    source_citation: SourceCitation
 
 
 class IntakeExtraction(BaseModel):
-    """All structured data parsed from a patient intake form PDF."""
+    """All structured data parsed from a patient intake form PDF.
+
+    Per-entry citations live on each MedicationEntry / AllergyEntry. The
+    document-level ``source_citation`` covers the form as a whole — used as
+    a fallback for fields without their own citation (demographics,
+    chief_concern, family_history).
+    """
 
     doc_type: Literal["intake_form"]
     patient_id: int
