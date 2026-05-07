@@ -188,7 +188,26 @@ export function useCopilotChat(
   );
 
   // Initial state hydrated from localStorage so a refresh keeps the brief.
-  const initialCache = useMemo(() => loadCache(cacheKey), [cacheKey]);
+  // Drop the cache when its snapshot is empty — that means the brief was
+  // generated before the patient's chart had any data (e.g. before today's
+  // intake form was processed). Reusing it would tell the doctor "no
+  // patient info" while the OpenEMR card view shows real medications.
+  const initialCache = useMemo(() => {
+    const cached = loadCache(cacheKey);
+    if (!cached) return null;
+    const s = cached.snapshot;
+    const empty =
+      !s ||
+      ((s.medications?.length ?? 0) === 0 &&
+       (s.problems?.length ?? 0) === 0 &&
+       (s.allergies?.length ?? 0) === 0 &&
+       (s.labs?.length ?? 0) === 0);
+    if (empty) {
+      try { localStorage.removeItem(cacheKey); } catch { /* ignore */ }
+      return null;
+    }
+    return cached;
+  }, [cacheKey]);
 
   const [messages, setMessages]         = useState<Message[]>(() => initialCache?.messages ?? []);
   const [sources, setSources]           = useState<Record<string, CiteSource>>(() => initialCache?.sources ?? {});
