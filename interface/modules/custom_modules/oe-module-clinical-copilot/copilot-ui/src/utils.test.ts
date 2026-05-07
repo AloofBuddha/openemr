@@ -19,6 +19,7 @@ const baseSnapshot: Snapshot = {
     { test: 'HbA1c', value: '7.2', units: '%', abnormal: 'H', date: '2026-04-01' },
   ],
   documents: [],
+  vitals: null,
 };
 
 // ─── formatApptTime ────────────────────────────────────────────────────────

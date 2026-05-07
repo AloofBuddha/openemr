@@ -303,9 +303,9 @@ async def answer_assembler_node(state: AgentState, deps: GraphDeps) -> dict:
 
 
 _DEFAULT_SUGGESTIONS = [
+    "What is the most pressing item for today's visit?",
+    "Are there any pending follow-ups from prior visits?",
     "What do guidelines say about this patient's conditions?",
-    "Are there any drug interactions to be aware of?",
-    "What follow-up tests or visits are appropriate?",
 ]
 
 

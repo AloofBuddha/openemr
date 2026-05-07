@@ -41,7 +41,12 @@ final class Orchestrator
 {
     private const MODEL      = 'claude-sonnet-4-6';
     private const MAX_TOKENS = 2000;
-    private const FALLBACK_SUGGESTION = 'What do guidelines say about this patient\'s conditions?';
+    /** @var list<string> Used when Sonnet omits the SUGGESTIONS block — 2 generic + 1 guidelines. */
+    private const FALLBACK_SUGGESTIONS = [
+        'What is the most pressing item for today\'s visit?',
+        'Are there any pending follow-ups from prior visits?',
+        'What do guidelines say about this patient\'s conditions?',
+    ];
 
     public function __construct(
         private readonly PatientBriefTool $briefTool,
@@ -108,8 +113,21 @@ final class Orchestrator
         );
 
         $suggestions = SuggestionParser::parse($fullText);
+        if (count($suggestions) < 3 && $isBrief) {
+            // BRIEF must always present 3 chips (2 generic + 1 guidelines).
+            // If Sonnet omitted the block or returned fewer, top up with the
+            // fallback in order — keeping any chips Sonnet did produce.
+            foreach (self::FALLBACK_SUGGESTIONS as $fallback) {
+                if (count($suggestions) >= 3) {
+                    break;
+                }
+                if (!in_array($fallback, $suggestions, true)) {
+                    $suggestions[] = $fallback;
+                }
+            }
+        }
         if (empty($suggestions)) {
-            $suggestions = [self::FALLBACK_SUGGESTION];
+            $suggestions = self::FALLBACK_SUGGESTIONS;
         }
         $this->emitEvent('suggestions', ['suggestions' => $suggestions]);
 

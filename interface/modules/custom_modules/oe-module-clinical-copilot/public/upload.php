@@ -200,9 +200,118 @@ if ($ch !== false) {
     error_log('[CopilotUpload] curl_init failed for sidecar');
 }
 
+// Write extracted lab values back to OpenEMR's procedure_* tables so the
+// patient summary "Recent Labs" card reflects them. Failures are logged but
+// don't break the upload — extraction data is still returned in JSON.
+if (
+    $docType === 'lab_pdf'
+    && is_array($extractionResult)
+    && !empty($extractionResult['results'])
+    && is_array($extractionResult['results'])
+) {
+    try {
+        writeLabsToOpenEMR(
+            $extractionResult['results'],
+            (int) $pid,
+            $physicianId,
+            $newId,
+            $safeName,
+        );
+    } catch (\Throwable $e) {
+        error_log('[CopilotUpload] Lab write-back failed: ' . $e->getMessage());
+    }
+}
+
 echo json_encode([
     'id'         => $newId,
     'name'       => $safeName,
     'date'       => $now,
     'extraction' => $extractionResult,
 ]);
+
+/**
+ * Persist extracted lab results into OpenEMR's procedure_* tables.
+ *
+ * Creates exactly one procedure_order + procedure_report linked to today's
+ * encounter (creates the encounter if absent), then one procedure_result row
+ * per extracted lab. New rows naturally supersede older ones in the patient
+ * summary because cards order by date desc.
+ *
+ * @param list<array<string,mixed>> $results
+ */
+function writeLabsToOpenEMR(
+    array $results,
+    int $pid,
+    int $physicianId,
+    int $docId,
+    string $docName,
+): void {
+    if (empty($results)) {
+        return;
+    }
+
+    // Find or create today's encounter so the procedure_order links somewhere.
+    $enc = sqlQuery(
+        "SELECT id FROM form_encounter WHERE pid = ? AND DATE(date) = CURDATE() ORDER BY id DESC LIMIT 1",
+        [$pid]
+    );
+    if ($enc) {
+        $encId = (int) $enc['id'];
+    } else {
+        $encId = (int) sqlInsert(
+            "INSERT INTO form_encounter (date, reason, pid, encounter, provider_id, facility_id, pc_catid)
+             VALUES (NOW(), 'Lab results uploaded — AI co-pilot', ?, 0, ?, 3, 5)",
+            [$pid, $physicianId]
+        );
+        sqlStatement("UPDATE form_encounter SET encounter = ? WHERE id = ?", [$encId, $encId]);
+    }
+
+    // Create the procedure order + report. We let MySQL pick auto-increment IDs.
+    $orderId = (int) sqlInsert(
+        "INSERT INTO procedure_order
+            (provider_id, patient_id, encounter_id, date_ordered, order_status, activity)
+         VALUES (?, ?, ?, CURDATE(), 'complete', 1)",
+        [$physicianId, $pid, $encId]
+    );
+
+    sqlInsert(
+        "INSERT INTO procedure_order_code
+            (procedure_order_id, procedure_order_seq, procedure_code, procedure_name, procedure_source)
+         VALUES (?, 1, 'COPILOT-LAB', ?, '1')",
+        [$orderId, 'Uploaded lab: ' . $docName]
+    );
+
+    $reportId = (int) sqlInsert(
+        "INSERT INTO procedure_report
+            (procedure_order_id, date_report, date_collected, report_status)
+         VALUES (?, NOW(), CURDATE(), 'final')",
+        [$orderId]
+    );
+
+    foreach ($results as $r) {
+        if (!is_array($r)) {
+            continue;
+        }
+        $testName = trim((string) ($r['test_name'] ?? ''));
+        $value    = trim((string) ($r['value']     ?? ''));
+        if ($testName === '' || $value === '') {
+            continue;
+        }
+        $unit     = trim((string) ($r['unit']             ?? ''));
+        $range    = trim((string) ($r['reference_range']  ?? ''));
+        $abnormal = trim((string) ($r['abnormal_flag']    ?? ''));
+        // Map our short flags to OpenEMR's expected vocabulary.
+        $abnormal = match ($abnormal) {
+            'H', 'L', 'C' => $abnormal,
+            'N'           => '',
+            default       => '',
+        };
+
+        sqlInsert(
+            "INSERT INTO procedure_result
+                (procedure_report_id, result_code, result_text, result, units, `range`, abnormal, result_status, date)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'final', CURDATE())",
+            [$reportId, '', $testName, $value, $unit, $range, $abnormal]
+        );
+    }
+}

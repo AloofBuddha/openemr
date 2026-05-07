@@ -222,11 +222,11 @@ $writeCallback = function (mixed $ch, string $data) use (
 
             } elseif ($evtType === 'done' && !$doneEmitted) {
                 if (!$suggestionsEmitted) {
-                    // Sidecar didn't emit suggestions — use generic fallback
+                    // Sidecar didn't emit suggestions — use 2 generic + 1 guidelines fallback
                     sseEmit('suggestions', json_encode(['suggestions' => [
-                        'What are the treatment recommendations?',
-                        'Check for drug interactions',
-                        'What follow-up is needed?',
+                        'What is the most pressing item for today\'s visit?',
+                        'Are there any pending follow-ups from prior visits?',
+                        'What do guidelines say about this patient\'s conditions?',
                     ]]));
                 }
                 sseEmit('done', '{}');

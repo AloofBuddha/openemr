@@ -124,6 +124,21 @@ read -r -d '' EXTRACTION_JSON << 'EXTRACTION_EOF' || true
     "Father: myocardial infarction at age 61",
     "Mother: type 2 diabetes mellitus"
   ],
+  "past_medical_history": [
+    "Type 2 diabetes mellitus (diagnosed 2018)",
+    "Essential hypertension (diagnosed 2016)",
+    "Hyperlipidemia (diagnosed 2020)"
+  ],
+  "surgical_history": [
+    "Cholecystectomy 2014",
+    "Tonsillectomy (childhood)"
+  ],
+  "social_history": {
+    "tobacco": "Never smoker",
+    "alcohol": "Occasional, 1-2 drinks/week",
+    "exercise": "Walks 20-30 min, 3x/week (less recently due to chest tightness)",
+    "occupation": "Retired schoolteacher"
+  },
   "source_citation": {
     "source_type": "intake_form",
     "source_id": "9901",

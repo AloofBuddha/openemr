@@ -92,7 +92,12 @@ export function CopilotPanel({
   };
 
   const handleChip = useCallback((text: string): void => {
-    if (!isBusy) send(text);
+    if (isBusy) return;
+    // Guideline-themed chips trigger the slower W2 RAG path; everything else
+    // uses the fast W1 chat (Sonnet over patient context only). Saves several
+    // seconds of latency on the two non-guidelines chips per brief.
+    const isGuidelinesChip = /guideline/i.test(text);
+    send(text, false, [], false, !isGuidelinesChip);
   }, [isBusy, send]);
 
   // ─── Sub-renders ────────────────────────────────────────────────────────
@@ -229,6 +234,16 @@ export function CopilotPanel({
             })));
           } else if (extraction?.doc_type === 'intake_form') {
             addIntakeToSnapshot(extraction);
+          }
+
+          // Dismiss the modal so the user sees the copilot panel + extraction summary.
+          setUploadOpen(false);
+
+          // After a lab upload, the chart now has new procedure_result rows;
+          // schedule a reload of the OpenEMR cards once the agent analysis
+          // streaming completes (handled below).
+          if (extraction?.doc_type === 'lab_pdf') {
+            sessionStorage.setItem(`copilot_reload_after_done_${pid}`, '1');
           }
 
           // Auto-trigger agent analysis.

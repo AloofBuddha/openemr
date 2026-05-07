@@ -36,7 +36,7 @@ export interface UseCopilotChatResult {
   snapshot: Snapshot | null;
   status: Status;
   statusMessage: string;
-  send: (userText: string, hidden?: boolean, extraDocIds?: number[], forceAgent?: boolean) => Promise<void>;
+  send: (userText: string, hidden?: boolean, extraDocIds?: number[], forceAgent?: boolean, forceFast?: boolean) => Promise<void>;
   restart: () => void;
   addDocToSnapshot: (doc: SnapshotDoc) => void;
   addLabsToSnapshot: (labs: SnapshotLab[]) => void;
@@ -221,6 +221,7 @@ export function useCopilotChat(
     hidden = false,
     extraDocIds: number[] = [],
     forceAgent = false,
+    forceFast = false,
   ): Promise<void> => {
     abortRef.current?.abort();
     abortRef.current = new AbortController();
@@ -242,7 +243,9 @@ export function useCopilotChat(
     // Hidden initial brief → W1 chat.php; visible queries → W2 agent.
     // forceAgent=true routes even a hidden message through the agent (used when
     // intake forms were processed so the brief includes that context).
-    const useAgent = !hidden || forceAgent;
+    // forceFast=true routes a visible query through the fast W1 path (used for
+    // generic suggestion chips that don't need guideline RAG).
+    const useAgent = forceFast ? false : (!hidden || forceAgent);
     const endpoint = useAgent ? agentQueryUrl : apiUrl;
     const docIds = useAgent
       ? [...new Set([...uploadedDocIdsRef.current, ...extraDocIds])]
@@ -357,6 +360,14 @@ export function useCopilotChat(
         ));
         setNeedsSave(true);
         setStatus(wasCachedRef.current ? 'cached' : 'live');
+        // After a lab upload, the OpenEMR procedure tables were updated
+        // server-side. Reload so the patient cards re-render with the new
+        // values. Cache rehydrates the copilot state on the way back in.
+        if (sessionStorage.getItem(`copilot_reload_after_done_${pid}`) === '1') {
+          sessionStorage.removeItem(`copilot_reload_after_done_${pid}`);
+          // Defer slightly so the cache write completes before reload.
+          setTimeout(() => { window.location.reload(); }, 250);
+        }
         break;
       case 'error':
         setInlineError(userText);
@@ -378,16 +389,37 @@ export function useCopilotChat(
 
   // Startup: check for pending intake forms first, then run initial brief if no cache.
   const startupRanRef = useRef(false);
+  const postIntakeFlagKey = `copilot_post_intake_${pid}`;
   useEffect(() => {
     if (startupRanRef.current) return; // guard against React StrictMode double-invoke
     startupRanRef.current = true;
 
     (async () => {
-      const { count, docIds: intakeDocIds } = await checkAndProcessIntakes();
+      // If we just reloaded after intake write-back, the cache holds the
+      // synthetic message + snapshot but no brief yet — start the brief now.
+      // Use W1 (chat.php) so the patient context is rebuilt from the DB,
+      // which now includes the intake-written allergies/meds/vitals.
+      if (sessionStorage.getItem(postIntakeFlagKey) === '1') {
+        sessionStorage.removeItem(postIntakeFlagKey);
+        send('Brief me on this patient.', true);
+        return;
+      }
+
+      const { count } = await checkAndProcessIntakes();
+      if (count > 0) {
+        // Force-write the synthetic message + intake snapshot to cache so the
+        // page reload doesn't lose them. setNeedsSave is async via React state,
+        // so we save explicitly here before triggering a reload.
+        saveCache(cacheKey, messagesRef.current, sources, snapshotRef.current, uploadedDocIdsRef.current);
+        sessionStorage.setItem(postIntakeFlagKey, '1');
+        // Reload so OpenEMR's patient summary cards re-render with the data
+        // that was just written to the chart by intake-process.php.
+        setTimeout(() => { window.location.reload(); }, 100);
+        return;
+      }
+
       if (!hasLocalCache.current) {
-        // If intakes were processed, route through the agent so the brief
-        // can reference the extracted data. Otherwise use W1 chat.php.
-        send('Brief me on this patient.', true, intakeDocIds, count > 0);
+        send('Brief me on this patient.', true, [], false);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
