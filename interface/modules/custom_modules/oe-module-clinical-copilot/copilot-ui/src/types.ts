@@ -81,6 +81,10 @@ export interface Message {
   isStreaming?: boolean;
   isError?: boolean;
   retryText?: string;
+  // 'system' messages are produced locally (e.g. the synthetic intake summary)
+  // and excluded from the history sent to the LLM, so the BRIEF prompt still
+  // sees a single user turn and emits the 3-chip structure.
+  kind?: 'intake_summary';
 }
 
 export interface CachedConvo {

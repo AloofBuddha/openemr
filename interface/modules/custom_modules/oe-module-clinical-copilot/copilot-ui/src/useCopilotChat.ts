@@ -229,7 +229,12 @@ export function useCopilotChat(
 
     const userMsg: Message = { id: uid(), role: 'user', content: userText, hidden };
     const assistantId = uid();
+    // Locally-produced synthetic messages (intake summaries) live in the chat
+    // for the user to see, but must NOT enter the LLM history — otherwise the
+    // post-intake brief looks like a follow-up turn and chat.php picks the
+    // FOLLOWUP prompt (1-2 chips) instead of BRIEF (3 chips, structured).
     const history = [...messagesRef.current, userMsg]
+      .filter(m => m.kind !== 'intake_summary')
       .map(m => ({ role: m.role, content: m.content }));
 
     setMessages(prev => [
@@ -507,6 +512,7 @@ export function useCopilotChat(
         role: 'assistant',
         content: _buildIntakeProcessedMessage(items),
         isStreaming: false,
+        kind: 'intake_summary',
       };
       setMessages(prev => {
         const next = [...prev, syntheticMsg];
