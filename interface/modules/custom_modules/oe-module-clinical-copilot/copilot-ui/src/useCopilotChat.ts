@@ -33,7 +33,8 @@ export interface UseCopilotChatResult {
   messages: Message[];
   sources: Record<string, CiteSource>;
   activeSource: CiteSource | null;
-  setActiveSource: (s: CiteSource | null) => void;
+  activeCitedText: string;            // exact phrase the user clicked, used to pick the right bbox
+  setActiveSource: (s: CiteSource | null, citedText?: string) => void;
   snapshot: Snapshot | null;
   status: Status;
   statusMessage: string;
@@ -191,7 +192,12 @@ export function useCopilotChat(
 
   const [messages, setMessages]         = useState<Message[]>(() => initialCache?.messages ?? []);
   const [sources, setSources]           = useState<Record<string, CiteSource>>(() => initialCache?.sources ?? {});
-  const [activeSource, setActiveSource] = useState<CiteSource | null>(null);
+  const [activeSource, _setActiveSource] = useState<CiteSource | null>(null);
+  const [activeCitedText, setActiveCitedText] = useState<string>('');
+  const setActiveSource = useCallback((s: CiteSource | null, citedText: string = '') => {
+    _setActiveSource(s);
+    setActiveCitedText(citedText);
+  }, []);
   const [snapshot, setSnapshot]         = useState<Snapshot | null>(() => initialCache?.snapshot ?? null);
   const [status, setStatus]             = useState<Status>(() => initialCache ? 'cached' : 'idle');
   const [statusMessage, setStatusMessage]   = useState('');
@@ -552,6 +558,7 @@ export function useCopilotChat(
     messages,
     sources,
     activeSource,
+    activeCitedText,
     setActiveSource,
     snapshot,
     status,

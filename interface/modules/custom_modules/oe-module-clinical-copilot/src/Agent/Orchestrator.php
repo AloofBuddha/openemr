@@ -136,6 +136,24 @@ final class Orchestrator
         if (empty($suggestions)) {
             $suggestions = self::FALLBACK_SUGGESTIONS;
         }
+
+        // Always present a chip that explicitly invites a guideline question.
+        // The W2 graph's supervisor only fires evidence_retriever when the
+        // query has guideline keywords — without this guarantee the RAG path
+        // is invisible to the physician.
+        $hasGuidelineChip = false;
+        foreach ($suggestions as $s) {
+            if (preg_match('/guideline|recommend|target|protocol|acc\\/aha|ada|uspstf/i', (string) $s)) {
+                $hasGuidelineChip = true;
+                break;
+            }
+        }
+        if (!$hasGuidelineChip) {
+            $suggestions[count($suggestions) >= 3 ? 2 : count($suggestions)]
+                = 'What do clinical guidelines recommend for this patient?';
+            $suggestions = array_slice(array_values($suggestions), 0, 3);
+        }
+
         $this->emitEvent('suggestions', ['suggestions' => $suggestions]);
 
         $totalMs = (int) (microtime(true) * 1000) - $startMs;

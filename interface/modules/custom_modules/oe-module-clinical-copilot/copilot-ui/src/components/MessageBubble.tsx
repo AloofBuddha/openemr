@@ -7,7 +7,7 @@ import type { CiteSource, Message } from '../types';
 interface Props {
   msg: Message;
   sources: Record<string, CiteSource>;
-  onCite: (src: CiteSource) => void;
+  onCite: (src: CiteSource, citedText?: string) => void;
   onChip: (text: string) => void;
   isBusy: boolean;
   showDisclaimer: boolean;
@@ -38,7 +38,12 @@ export function MessageBubble({
       const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-src]');
       if (!btn) return;
       const src = sources[btn.getAttribute('data-src') ?? ''];
-      if (src) { onCite(src); e.stopPropagation(); }
+      if (src) {
+        // Pass the cited phrase so the drawer can highlight the *specific*
+        // value the user clicked, not just the first extracted result.
+        onCite(src, (btn.textContent ?? '').trim());
+        e.stopPropagation();
+      }
     };
     el.addEventListener('click', handleClick);
     return () => el.removeEventListener('click', handleClick);

@@ -23,7 +23,7 @@ export function CopilotPanel({
   pid, apiUrl, csrfToken, physicianId, webRoot, categories,
 }: CopilotPanelProps) {
   const {
-    messages, sources, activeSource, setActiveSource, snapshot,
+    messages, sources, activeSource, activeCitedText, setActiveSource, snapshot,
     status, statusMessage, send, restart,
     addDocToSnapshot, addLabsToSnapshot, addIntakeToSnapshot, addDocId, uploadedDocIds, labsFlash,
   } = useCopilotChat(pid, apiUrl, csrfToken, physicianId);
@@ -114,7 +114,7 @@ export function CopilotPanel({
             key={msg.id}
             msg={msg}
             sources={sources}
-            onCite={src => setActiveSource(src)}
+            onCite={(src, citedText) => setActiveSource(src, citedText)}
             onChip={handleChip}
             isBusy={isBusy}
             showDisclaimer={isLastAssistant && !msg.isStreaming && !msg.isError}
@@ -208,6 +208,7 @@ export function CopilotPanel({
               width={drawerWidth}
               webRoot={webRoot}
               docId={activeSource.openemr_doc_id}
+              citedText={activeCitedText}
             />
           </>
         )}

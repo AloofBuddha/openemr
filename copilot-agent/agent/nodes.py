@@ -27,6 +27,7 @@ from agent.supervisor import (
     SupervisorDecision,
     _estimate_cost,
     make_supervisor_decision,
+    query_wants_guidelines,
 )
 from rag.indexer import GuidelineChunk
 from rag.retriever import retrieve
@@ -120,10 +121,17 @@ def route_from_supervisor(state: AgentState) -> str:
     complete). Without this, Haiku occasionally re-proposes the same plan on
     every iteration — we'd loop on intake_extractor until MAX_ITERATIONS and
     never call evidence_retriever.
+
+    Also vetoes evidence_retriever when the query has no guideline-related
+    keywords. Lab summarisation queries don't need a 5-section RAG round-trip,
+    and the cost/latency wasn't paying off when the model didn't even cite
+    the chunks. The supervisor's intent is informative; this veto is the
+    last word.
     """
     decision_data = state.get("_supervisor_decision", {})
     next_workers: list[str] = decision_data.get("next_workers", [])
     intent: list[str] = decision_data.get("intent", [])
+    query = state.get("query", "")
 
     valid_nodes = {"intake_extractor", "evidence_retriever", "answer_assembler"}
 
@@ -136,12 +144,17 @@ def route_from_supervisor(state: AgentState) -> str:
 
     extraction_done = len(extracted_docs) >= len(doc_ids)
     retrieval_done = len(guideline_chunks) > 0
+    wants_guidelines = query_wants_guidelines(query)
 
     for worker in next_workers:
         if worker == "intake_extractor" and extraction_done:
             continue
-        if worker == "evidence_retriever" and retrieval_done:
-            continue
+        if worker == "evidence_retriever":
+            if retrieval_done:
+                continue
+            if not wants_guidelines:
+                # Skip RAG when the query doesn't ask for guideline evidence.
+                continue
         if worker in valid_nodes:
             return worker
 
@@ -302,7 +315,8 @@ async def answer_assembler_node(state: AgentState, deps: GraphDeps) -> dict:
         # Sonnet occasionally omits the trailing SUGGESTIONS block on long
         # technical answers. Always surface at least one chip so the UI
         # never shows a dead-end.
-        suggestions = _DEFAULT_SUGGESTIONS
+        suggestions = list(_DEFAULT_SUGGESTIONS)
+    suggestions = _ensure_guideline_chip(suggestions)
 
     routing_log = list(state.get("routing_log", []))
     routing_log.append({
@@ -331,6 +345,27 @@ _DEFAULT_SUGGESTIONS = [
     "Are there any pending follow-ups from prior visits?",
     "What do guidelines say about this patient's conditions?",
 ]
+
+_DEFAULT_GUIDELINE_CHIP = "What do clinical guidelines recommend for this patient?"
+
+
+def _ensure_guideline_chip(suggestions: list[str]) -> list[str]:
+    """Always return three chips with the last one explicitly guideline-related.
+
+    Why: the UX contract is that one chip is always the "ask the guidelines"
+    affordance. Clicking it phrases the next query with "guidelines" /
+    "recommend", which trips the supervisor's wants-guidelines gate and
+    invokes RAG. If we let the model omit a guideline chip, that path is
+    invisible to the physician and the RAG capability never surfaces.
+    """
+    cleaned = [s.strip() for s in suggestions if s and s.strip()]
+    has_guideline = any(query_wants_guidelines(s) for s in cleaned)
+    if not has_guideline:
+        if len(cleaned) >= 3:
+            cleaned[2] = _DEFAULT_GUIDELINE_CHIP
+        else:
+            cleaned.append(_DEFAULT_GUIDELINE_CHIP)
+    return cleaned[:3]
 
 
 def _split_answer_and_suggestions(answer: str) -> tuple[str, list[str]]:

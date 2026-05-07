@@ -11,13 +11,21 @@ def _state_with_decision(
     extracted_docs: list[dict] | None = None,
     doc_ids: list[int] | None = None,
     guideline_chunks: list[dict] | None = None,
+    query: str = "What does the guideline recommend for this patient?",
 ) -> dict:
-    """Build a minimal state dict carrying the supervisor decision and progress fields."""
+    """Build a minimal state dict carrying the supervisor decision and progress fields.
+
+    The default query has guideline keywords so route_from_supervisor's
+    wants-guidelines veto doesn't spuriously skip evidence_retriever in
+    tests that aren't exercising that gate. Tests that do care about the
+    veto pass an explicit ``query`` instead.
+    """
     return {
         "_supervisor_decision": {"intent": intent, "next_workers": next_workers},
         "extracted_docs": extracted_docs or [],
         "doc_ids": doc_ids or [],
         "guideline_chunks": guideline_chunks or [],
+        "query": query,
     }
 
 
@@ -94,3 +102,23 @@ def test_route_falls_through_to_answer_when_all_work_done() -> None:
         guideline_chunks=[{"chunk_id": "abc"}],
     )
     assert route_from_supervisor(state) == "answer_assembler"
+
+
+def test_route_vetoes_evidence_retriever_when_query_has_no_guideline_keywords() -> None:
+    """Lab-summary queries don't pay the RAG round-trip; the veto kicks in
+    even when the supervisor proposed evidence_retriever."""
+    state = _state_with_decision(
+        intent=["needs_evidence", "can_answer"],
+        next_workers=["evidence_retriever"],
+        query="Summarise the uploaded lab",
+    )
+    assert route_from_supervisor(state) == "answer_assembler"
+
+
+def test_route_allows_evidence_retriever_when_query_mentions_guidelines() -> None:
+    state = _state_with_decision(
+        intent=["needs_evidence"],
+        next_workers=["evidence_retriever"],
+        query="What does ACC/AHA recommend for this patient's BP?",
+    )
+    assert route_from_supervisor(state) == "evidence_retriever"

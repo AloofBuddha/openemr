@@ -22,13 +22,46 @@ interface Props {
   width: number | undefined;
   webRoot?: string;  // e.g. "/interface/modules/custom_modules/oe-module-clinical-copilot/public"
   docId?: number;    // OpenEMR document id for bbox-overlay page-image fetches
+  citedText?: string; // exact phrase the user clicked, used to target the right bbox
 }
 
-// First extracted result that has a bbox is what we visualise. Picked at
-// the top so the drawer leads with the proof — the page image with the
-// citation rectangle drawn over the actual cited text.
-function _firstWithBbox(results: ExtractedResult[] | undefined): ExtractedResult | null {
-  if (!results) return null;
+// Pick the result whose value (or quote, or label) best matches the phrase
+// the user clicked. This is what makes the bbox feel like proof: when you
+// click [[D1]]232 mg/dL[[/D1]], the yellow rect lands on "232 mg/dL"
+// specifically — not on whatever happens to be the first extracted item.
+//
+// Order of preference:
+//   1. value contains the cited number/word (covers "232 mg/dL" → "232")
+//   2. quote substring match
+//   3. label match (e.g. "Hemoglobin A1c")
+//   4. first result with a bbox (graceful fallback for top-level [[D1]] clicks)
+function _matchResult(
+  results: ExtractedResult[] | undefined,
+  citedText: string,
+): ExtractedResult | null {
+  if (!results || results.length === 0) return null;
+  const phrase = citedText.trim().toLowerCase();
+  if (phrase) {
+    const norm = (s: string | null | undefined) => (s ?? '').toLowerCase();
+    const tokens = phrase.split(/\s+/).filter(t => t.length >= 2);
+
+    // Strict match: cited phrase appears in the result value or quote.
+    for (const r of results) {
+      if (r.bbox && (norm(r.value).includes(phrase) || norm(r.quote).includes(phrase))) {
+        return r;
+      }
+    }
+    // Token-level: at least one substantive cited word is in the value.
+    for (const r of results) {
+      if (r.bbox && tokens.some(t => norm(r.value).includes(t) || norm(r.quote).includes(t))) {
+        return r;
+      }
+    }
+    // Label match: e.g. user clicked "Hemoglobin A1c" with no number.
+    for (const r of results) {
+      if (r.bbox && norm(r.label).includes(phrase)) return r;
+    }
+  }
   return results.find(r => r.bbox) ?? null;
 }
 
@@ -88,7 +121,7 @@ function PageOverlay({ bbox, imgSrc }: OverlayProps) {
   );
 }
 
-export function SourceDrawer({ source, onClose, width, webRoot, docId }: Props) {
+export function SourceDrawer({ source, onClose, width, webRoot, docId, citedText = '' }: Props) {
   const typeLabel = TYPE_LABELS[source.type] ?? source.type;
 
   // OpenEMR uses jQuery + Bootstrap collapse for its expandable cards.
@@ -122,13 +155,14 @@ export function SourceDrawer({ source, onClose, width, webRoot, docId }: Props) 
       </div>
       <div className="copilot-drawer-body">
         {(() => {
-          const featured = _firstWithBbox(source.extracted_results);
+          const featured = _matchResult(source.extracted_results, citedText);
           if (!featured?.bbox || !webRoot || !docId) return null;
           const imgSrc = `${webRoot}/agent-page.php?doc_id=${docId}&page=${featured.bbox.page}`;
           return (
             <div className="copilot-bbox-section">
               <p className="copilot-drawer-section-label">
-                Source · page {featured.bbox.page}
+                {citedText ? <>Source · &ldquo;{citedText}&rdquo; · page {featured.bbox.page}</>
+                           : <>Source · page {featured.bbox.page}</>}
               </p>
               <PageOverlay bbox={featured.bbox} imgSrc={imgSrc} />
               <p className="copilot-bbox-caption">

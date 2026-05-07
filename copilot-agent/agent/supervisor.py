@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import Literal, TypedDict
 
@@ -11,6 +12,23 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 _HAIKU = "claude-haiku-4-5-20251001"
+
+# Words that indicate the physician is asking about clinical guidelines.
+# Used as a fast pre-filter so we don't pay the RAG round-trip for queries
+# like "summarize this lab" or "what allergies are listed".
+_GUIDELINE_TRIGGER_RE = re.compile(
+    r"\b(guideline|guidance|recommend|recommendation|target|threshold|standard|"
+    r"criteria|screening|prevent|protocol|acc/aha|ada|uspstf|consensus|evidence|"
+    r"cutoff|cut.?off|grade|first.?line|second.?line|when to|should i)\b",
+    re.IGNORECASE,
+)
+
+
+def query_wants_guidelines(query: str) -> bool:
+    """True iff the physician's query has a keyword that suggests
+    they want clinical-guideline evidence. Cheap precheck — runs before
+    the supervisor LLM call."""
+    return bool(_GUIDELINE_TRIGGER_RE.search(query or ""))
 
 
 # ---------------------------------------------------------------------------
