@@ -1,6 +1,7 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 
-import type { CiteSource } from '../types';
+import type { BBox, CiteSource, ExtractedResult } from '../types';
 
 const TYPE_LABELS: Record<string, string> = {
   appointment: 'Appointment',
@@ -19,9 +20,75 @@ interface Props {
   source: CiteSource;
   onClose: () => void;
   width: number | undefined;
+  webRoot?: string;  // e.g. "/interface/modules/custom_modules/oe-module-clinical-copilot/public"
+  docId?: number;    // OpenEMR document id for bbox-overlay page-image fetches
 }
 
-export function SourceDrawer({ source, onClose, width }: Props) {
+// First extracted result that has a bbox is what we visualise. Picked at
+// the top so the drawer leads with the proof — the page image with the
+// citation rectangle drawn over the actual cited text.
+function _firstWithBbox(results: ExtractedResult[] | undefined): ExtractedResult | null {
+  if (!results) return null;
+  return results.find(r => r.bbox) ?? null;
+}
+
+interface OverlayProps {
+  bbox: BBox;
+  imgSrc: string;
+}
+
+// Renders the page PNG at its natural size and overlays a yellow rect
+// scaled to match. PDF coords are bottom-origin in points, image is
+// top-origin in pixels — we flip y at render time.
+function PageOverlay({ bbox, imgSrc }: OverlayProps) {
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+
+  useEffect(() => {
+    setLoaded(false);
+    setImgSize(null);
+  }, [imgSrc]);
+
+  const overlayStyle = useMemo(() => {
+    if (!loaded || !imgSize) return null;
+    // PDF coords are in points; the PNG is rendered at 150 DPI.
+    // Both axes scale by (image_pixels / pdf_points).
+    const sx = imgSize.w / bbox.page_width;
+    const sy = imgSize.h / bbox.page_height;
+    const left = bbox.x0 * sx;
+    const width = (bbox.x1 - bbox.x0) * sx;
+    // Flip y: PDF origin is bottom-left, canvas is top-left.
+    const top = (bbox.page_height - bbox.y1) * sy;
+    const height = (bbox.y1 - bbox.y0) * sy;
+    return {
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${width}px`,
+      height: `${height}px`,
+    };
+  }, [loaded, imgSize, bbox]);
+
+  return (
+    <div className="copilot-bbox-page">
+      <img
+        ref={imgRef}
+        src={imgSrc}
+        alt={`Page ${bbox.page}`}
+        onLoad={() => {
+          const el = imgRef.current;
+          if (el) {
+            setImgSize({ w: el.clientWidth, h: el.clientHeight });
+            setLoaded(true);
+          }
+        }}
+      />
+      {overlayStyle && <div className="copilot-bbox-rect" style={overlayStyle} />}
+    </div>
+  );
+}
+
+export function SourceDrawer({ source, onClose, width, webRoot, docId }: Props) {
   const typeLabel = TYPE_LABELS[source.type] ?? source.type;
 
   // OpenEMR uses jQuery + Bootstrap collapse for its expandable cards.
@@ -54,6 +121,23 @@ export function SourceDrawer({ source, onClose, width }: Props) {
         <button className="copilot-drawer-close" onClick={onClose} title="Close"><X size={14} /></button>
       </div>
       <div className="copilot-drawer-body">
+        {(() => {
+          const featured = _firstWithBbox(source.extracted_results);
+          if (!featured?.bbox || !webRoot || !docId) return null;
+          const imgSrc = `${webRoot}/agent-page.php?doc_id=${docId}&page=${featured.bbox.page}`;
+          return (
+            <div className="copilot-bbox-section">
+              <p className="copilot-drawer-section-label">
+                Source · page {featured.bbox.page}
+              </p>
+              <PageOverlay bbox={featured.bbox} imgSrc={imgSrc} />
+              <p className="copilot-bbox-caption">
+                Yellow box: <strong>{featured.label}</strong>{' '}
+                {featured.value && <>= <code>{featured.value}</code></>}
+              </p>
+            </div>
+          );
+        })()}
         {source.extracted_results && source.extracted_results.length > 0 ? (
           <>
             <p className="copilot-drawer-section-label">Extracted from this document</p>

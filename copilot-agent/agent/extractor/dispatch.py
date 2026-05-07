@@ -128,6 +128,7 @@ async def extract_document(
                 )
             return await extract_lab_text(
                 extracted_text, patient_id, openemr_doc_id, anthropic_client,
+                pdf_bytes=file_bytes if mimetype == "application/pdf" else None,
             )
 
         if doc_type == "intake_form":

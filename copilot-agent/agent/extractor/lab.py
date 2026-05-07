@@ -16,26 +16,56 @@ from agent.extractor.claude_calls import (
     parse_json_response,
 )
 from agent.extractor.confidence import threshold_warnings_lab
-from agent.extractor.pdf_utils import pdf_to_b64_images
+from agent.extractor.pdf_utils import (
+    PageWordIndex,
+    build_word_index,
+    find_value_bbox,
+    pdf_to_b64_images,
+)
 from agent.extractor.prompts import LAB_TEXT_PROMPT, LAB_VISION_PROMPT
-from schemas.citation import SourceCitation
+from schemas.citation import BBox, SourceCitation
 from schemas.lab import LabExtraction, LabResult
 
 logger = logging.getLogger(__name__)
 
 
-def _build_lab_result(r: dict[str, Any], openemr_doc_id: int, page_label: str) -> LabResult:
-    """Convert a raw result dict from Claude into a LabResult with citation."""
+def _build_lab_result(
+    r: dict[str, Any],
+    openemr_doc_id: int,
+    page_label: str,
+    word_index: PageWordIndex | None = None,
+) -> LabResult:
+    """Convert a raw result dict from Claude into a LabResult with citation.
+
+    When a ``word_index`` is supplied (text path only — pdfplumber gave us
+    word-level coordinates), we try to locate the extracted value back in
+    the source PDF and attach a bbox to the citation. Bbox is decoration:
+    if the lookup misses, we still emit a perfectly valid LabResult.
+    """
+    test_name = r.get("test_name", "")
+    value_str = str(r.get("value", "")) if r.get("value") is not None else ""
+
+    bbox: BBox | None = None
+    page_label_resolved = page_label
+    if word_index is not None and value_str:
+        located = find_value_bbox(word_index, value_str, test_name=test_name)
+        if located is not None:
+            page_num, x0, y0, x1, y1, pw, ph = located
+            bbox = BBox(page=page_num, x0=x0, y0=y0, x1=x1, y1=y1,
+                        page_width=pw, page_height=ph)
+            page_label_resolved = f"page {page_num}"
+
     citation = SourceCitation(
         source_type="lab_pdf",
         source_id=str(openemr_doc_id),
-        page_or_section=page_label,
-        field_or_chunk_id=r.get("test_name", "unknown"),
-        quote_or_value=str(r.get("value", "")),
+        page_or_section=page_label_resolved,
+        field_or_chunk_id=test_name or "unknown",
+        quote_or_value=value_str,
+        bbox=bbox,
     )
     return LabResult(
-        test_name=r.get("test_name", ""),
-        value=str(r.get("value", "")) if r.get("value") is not None else "",
+        test_name=test_name,
+        value=value_str,
         unit=r.get("unit"),
         reference_range=r.get("reference_range"),
         collection_date=r.get("collection_date"),
@@ -50,13 +80,26 @@ async def extract_lab_text(
     patient_id: int,
     openemr_doc_id: int,
     anthropic_client: anthropic.AsyncAnthropic,
+    pdf_bytes: bytes | None = None,
 ) -> LabExtraction:
+    """Text-path lab extraction with optional bbox capture.
+
+    When ``pdf_bytes`` is supplied, we build a word index once and look up
+    each extracted value's bbox so the UI can render a yellow-rectangle
+    overlay on the cited page. Without ``pdf_bytes`` (legacy callers,
+    tests), the result is unchanged — citation just lacks ``bbox``.
+    """
     raw = await call_claude_text(LAB_TEXT_PROMPT.format(text=text), anthropic_client)
     data = parse_json_response(raw)
 
+    word_index = build_word_index(pdf_bytes) if pdf_bytes else None
+
     raw_results, threshold_warns = threshold_warnings_lab(data.get("results", []))
     warnings = list(data.get("extraction_warnings", [])) + threshold_warns
-    results = [_build_lab_result(r, openemr_doc_id, "text extraction") for r in raw_results]
+    results = [
+        _build_lab_result(r, openemr_doc_id, "text extraction", word_index)
+        for r in raw_results
+    ]
 
     return LabExtraction(
         doc_type="lab_pdf",

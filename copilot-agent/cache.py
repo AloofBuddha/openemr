@@ -3,14 +3,40 @@
 Survives sidecar restarts (disk layer) while serving repeated reads of the
 same doc cheaply (memory layer). Each extraction is a single JSON file
 named ``{doc_id}.json``.
+
+Also stores per-document page-image PNGs as ``{doc_id}_page{N}.png`` so
+the UI can render bounding-box overlays on the cited region.
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
 from pathlib import Path
 
+import pdfplumber
+
 logger = logging.getLogger(__name__)
+
+
+def render_pdf_pages_to_cache(cache_dir: Path, doc_id: int, pdf_bytes: bytes) -> int:
+    """Render every page of ``pdf_bytes`` as PNG into ``cache_dir``.
+
+    Returns the number of pages rendered. Failures are logged and absorbed
+    so an extraction that wasn't otherwise broken still succeeds — the
+    bbox overlay just won't be available for those pages.
+    """
+    rendered = 0
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for i, page in enumerate(pdf.pages, start=1):
+                img = page.to_image(resolution=150)
+                out = cache_dir / f"{doc_id}_page{i}.png"
+                img.save(str(out), format="PNG")
+                rendered += 1
+    except Exception:
+        logger.exception("Page-image render failed for doc_id=%d", doc_id)
+    return rendered
 
 
 class ExtractionCache:

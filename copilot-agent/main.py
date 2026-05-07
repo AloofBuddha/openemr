@@ -15,7 +15,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import anthropic
 from dotenv import load_dotenv
@@ -26,7 +26,7 @@ from agent.extractor import extract_document
 from schemas.other import OtherExtraction
 from agent.graph import build_graph
 from api_models import IngestRequest, QueryRequest
-from cache import ExtractionCache
+from cache import ExtractionCache, render_pdf_pages_to_cache
 from patient_index import PatientIntakeIndex
 from rag.indexer import build_index
 from sse import event, stream_text_in_chunks
@@ -140,6 +140,16 @@ async def ingest(req: IngestRequest, request: Request) -> dict:
     result_dict = result.model_dump()
     request.app.state.extraction_cache.set(req.openemr_doc_id, result_dict)
     logger.info("Cached extraction for doc_id=%d (doc_type=%s)", req.openemr_doc_id, result_dict.get("doc_type"))
+
+    # Render every PDF page as PNG into the cache so the UI can fetch the
+    # image and overlay the citation bbox. PDFs only — single-image uploads
+    # don't need rendering. Failure here doesn't fail the ingest.
+    if req.mimetype == "application/pdf":
+        try:
+            pages = render_pdf_pages_to_cache(_CACHE_DIR, req.openemr_doc_id, file_bytes)
+            logger.info("Rendered %d page(s) for doc_id=%d", pages, req.openemr_doc_id)
+        except Exception:
+            logger.exception("Page-render cache failed for doc_id=%d", req.openemr_doc_id)
 
     if req.doc_type == "intake_form":
         request.app.state.patient_index.register(
@@ -276,6 +286,22 @@ def _gather_extractions(
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/docs/{doc_id}/page/{page_num}")
+def doc_page_image(doc_id: int, page_num: int) -> Any:
+    """Return the cached PNG for a given page of an extracted PDF.
+
+    Used by the citation source drawer to render the page with a yellow
+    bounding-box overlay on the cited region. The PHP module proxies this
+    through (it's the same internal-only sidecar pattern as /query); the
+    sidecar never exposes patient identifiers in the URL.
+    """
+    from fastapi.responses import FileResponse
+    path = _CACHE_DIR / f"{doc_id}_page{page_num}.png"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Page image not in cache")
+    return FileResponse(str(path), media_type="image/png")
 
 
 @app.get("/patients/{pid}/unprocessed-intakes")

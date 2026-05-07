@@ -388,6 +388,7 @@ def _doc_extracted_results(doc: dict[str, Any]) -> list[dict[str, Any]]:
                 "abnormal": r.get("abnormal_flag"),
                 "page": sc.get("page_or_section") or "",
                 "quote": sc.get("quote_or_value") or "",
+                "bbox": sc.get("bbox"),  # null when text didn't match a word
             })
         return out
 
