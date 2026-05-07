@@ -138,17 +138,34 @@ function writeIntakeToOpenEMR(array $ext, int $pid, int $physicianId, string $ph
 {
     try {
         // 1. Find or create today's encounter ─────────────────────────────────
+        $chiefConcern = trim((string) ($ext['chief_concern'] ?? ''));
+        $encounterReason = $chiefConcern !== ''
+            ? 'New patient intake — ' . $chiefConcern
+            : 'New patient intake — AI co-pilot';
+
         $enc = sqlQuery(
-            "SELECT id FROM form_encounter WHERE pid = ? AND DATE(date) = CURDATE() ORDER BY id DESC LIMIT 1",
+            "SELECT id, reason FROM form_encounter WHERE pid = ? AND DATE(date) = CURDATE() ORDER BY id DESC LIMIT 1",
             [$pid]
         );
         if ($enc) {
             $encId = (int) $enc['id'];
+            // If today's encounter has a generic / placeholder reason, replace
+            // it with the more informative chief_concern from the intake.
+            $existingReason = trim((string) ($enc['reason'] ?? ''));
+            if (
+                $chiefConcern !== ''
+                && ($existingReason === '' || $existingReason === 'New patient intake — AI co-pilot')
+            ) {
+                sqlStatement(
+                    "UPDATE form_encounter SET reason = ? WHERE id = ?",
+                    [$encounterReason, $encId]
+                );
+            }
         } else {
             $encId = (int) sqlInsert(
                 "INSERT INTO form_encounter (date, reason, pid, encounter, provider_id, facility_id, pc_catid)
-                 VALUES (NOW(), 'New patient intake — AI co-pilot', ?, 0, ?, 3, 5)",
-                [$pid, $physicianId]
+                 VALUES (NOW(), ?, ?, 0, ?, 3, 5)",
+                [$encounterReason, $pid, $physicianId]
             );
             sqlStatement("UPDATE form_encounter SET encounter = ? WHERE id = ?", [$encId, $encId]);
         }
