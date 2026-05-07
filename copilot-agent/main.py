@@ -139,10 +139,12 @@ async def query(req: QueryRequest, request: Request) -> StreamingResponse:
     Event sequence::
 
         status      — UI hint while the graph runs
+        provenance  — JSON {text: "Reviewed: ..."} natural-language source summary
         citations   — JSON {citations: [...]} so PHP can build the source map
         delta       — repeated; small text chunks of the streaming answer
         suggestions — JSON {suggestions: [...]} for follow-up question chips
         routing     — JSON {routing_log: [...]} supervisor + worker decisions
+                      (developer-only; UI hides this unless ?debug=1)
         done        — terminator
     """
     return StreamingResponse(
@@ -156,6 +158,7 @@ async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
     citations: list = []
     suggestions: list = []
     routing_log: list = []
+    provenance: str = ""
 
     try:
         # Pull in any intake forms uploaded (e.g. by front desk) but not yet seen by the agent.
@@ -197,12 +200,15 @@ async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
         citations = result.get("citations", [])
         suggestions = result.get("suggestions", [])
         routing_log = result.get("routing_log", [])
+        provenance = result.get("provenance", "")
 
     except BaseException:
         # Catch CancelledError (from asyncio task cancellation) and any other
         # unexpected exception so we always emit a done event to the PHP proxy.
         logger.exception("Query stream failed for patient_id=%d", req.patient_id)
 
+    if provenance:
+        yield event("provenance", {"text": provenance})
     yield event("citations", {"citations": citations})
     async for chunk in stream_text_in_chunks(answer):
         yield chunk

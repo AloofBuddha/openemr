@@ -27,6 +27,7 @@ class AgentState(TypedDict):
     patient_context: str           # pre-built patient record context (from PHP)
     answer: str
     citations: list[dict]
+    provenance: str                # one-line natural-language summary of sources used
     suggestions: list[str]
     routing_log: list[dict]        # each: {node, decision, duration_ms}
     iteration: int

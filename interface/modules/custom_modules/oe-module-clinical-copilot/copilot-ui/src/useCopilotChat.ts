@@ -366,6 +366,15 @@ export function useCopilotChat(
         ));
         break;
       }
+      case 'provenance': {
+        const text = (data.text as string) ?? '';
+        if (text) {
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId ? { ...m, provenance: text } : m
+          ));
+        }
+        break;
+      }
       case 'done':
         setStatusMessage('');
         setMessages(prev => prev.map(m =>

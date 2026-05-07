@@ -61,8 +61,17 @@ def _load_results() -> dict[str, dict]:
     return combined
 
 
-def _print_table(current: dict[str, dict], baseline: dict[str, dict]) -> bool:
-    """Print rubric-by-rubric comparison. Return True if all rubrics pass."""
+def _print_table(
+    current: dict[str, dict],
+    baseline: dict[str, dict],
+    skipped_prefixes: tuple[str, ...] = (),
+) -> bool:
+    """Print rubric-by-rubric comparison. Return True if all rubrics pass.
+
+    `skipped_prefixes` lists the namespace prefixes that were intentionally
+    not run (e.g. "brief." and "followup." when --skip-brief is set).
+    Rubrics matching those prefixes are reported as SKIP, not FAIL.
+    """
     all_keys = sorted(set(current) | set(baseline))
     failures: list[str] = []
 
@@ -72,10 +81,13 @@ def _print_table(current: dict[str, dict], baseline: dict[str, dict]) -> bool:
     for key in all_keys:
         cur = current.get(key)
         base = baseline.get(key)
+        was_skipped = any(key.startswith(p) for p in skipped_prefixes)
 
         if cur is None:
-            print(f"{key:<46} {base['pct']:>9.1f}%        --   (rubric missing in current run)")
-            failures.append(f"{key}: missing in current run")
+            label = "skipped" if was_skipped else "missing"
+            print(f"{key:<46} {base['pct']:>9.1f}%        --   ({label})")
+            if not was_skipped:
+                failures.append(f"{key}: missing in current run")
             continue
 
         cur_pct = cur["pct"]
@@ -151,7 +163,12 @@ def main() -> int:
         return 0
 
     baseline = json.loads(BASELINE_PATH.read_text())
-    passed = _print_table(current, baseline)
+    skipped_prefixes: list[str] = []
+    if args.skip_brief:
+        skipped_prefixes.extend(["brief.", "followup."])
+    if args.skip_graph:
+        skipped_prefixes.append("graph.")
+    passed = _print_table(current, baseline, tuple(skipped_prefixes))
 
     if not passed:
         print(f"\nGATE FAILED — at least one rubric regressed > {TOLERANCE_POINTS}pp")

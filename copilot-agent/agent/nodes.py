@@ -298,10 +298,12 @@ async def answer_assembler_node(state: AgentState, deps: GraphDeps) -> dict:
         "duration_ms": int((time.monotonic() - t0) * 1000),
     })
 
+    patient_context = state.get("patient_context", "")
     return {
         "answer": answer,
-        "citations": _build_citations(
-            guideline_chunks, extracted_docs, state.get("patient_context", "")
+        "citations": _build_citations(guideline_chunks, extracted_docs, patient_context),
+        "provenance": _build_provenance_summary(
+            guideline_chunks, extracted_docs, has_patient_context=bool(patient_context.strip())
         ),
         "suggestions": suggestions,
         "routing_log": routing_log,
@@ -345,6 +347,63 @@ def _split_answer_and_suggestions(answer: str) -> tuple[str, list[str]]:
 
 
 _PATIENT_CONTEXT_LINE_RE = re.compile(r"^\s*\[(\d+)\]\s*(.+?)\s*$")
+_GUIDELINE_FAMILY_RE = re.compile(r"\[([A-Z][A-Z/]+)")  # "[ACC/AHA 2023 §..." → "ACC/AHA"
+
+_EXTRACTED_RESULTS_LIMIT = 6  # cap how many provenance entries we ship per doc
+
+
+def _doc_extracted_results(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """Compact list of {label, value, page, quote, abnormal} per extracted item.
+
+    Carries the literal text the extractor pulled from the PDF (via
+    ``SourceCitation.quote_or_value``) plus the page reference, so the UI
+    can show the physician the actual evidence rather than just doc-level
+    metadata.
+    """
+    out: list[dict[str, Any]] = []
+    doc_type = doc.get("doc_type")
+
+    if doc_type == "lab_pdf":
+        for r in (doc.get("results") or [])[:_EXTRACTED_RESULTS_LIMIT]:
+            sc = r.get("source_citation") or {}
+            out.append({
+                "label": r.get("test_name") or "Result",
+                "value": f"{r.get('value', '')} {r.get('unit') or ''}".strip(),
+                "abnormal": r.get("abnormal_flag"),
+                "page": sc.get("page_or_section") or "",
+                "quote": sc.get("quote_or_value") or "",
+            })
+        return out
+
+    if doc_type == "intake_form":
+        for m in (doc.get("current_medications") or [])[:_EXTRACTED_RESULTS_LIMIT]:
+            sc = m.get("source_citation") or {}
+            out.append({
+                "label": f"Medication: {m.get('name') or '?'}",
+                "value": f"{m.get('dose') or ''} {m.get('frequency') or ''}".strip(),
+                "page": sc.get("page_or_section") or "",
+                "quote": sc.get("quote_or_value") or "",
+            })
+        for a in (doc.get("allergies") or [])[:_EXTRACTED_RESULTS_LIMIT]:
+            sc = a.get("source_citation") or {}
+            out.append({
+                "label": f"Allergy: {a.get('allergen') or '?'}",
+                "value": a.get("reaction") or "",
+                "page": sc.get("page_or_section") or "",
+                "quote": sc.get("quote_or_value") or "",
+            })
+        chief = doc.get("chief_concern")
+        if chief:
+            sc = (doc.get("source_citation") or {})
+            out.append({
+                "label": "Chief concern",
+                "value": chief,
+                "page": sc.get("page_or_section") or "",
+                "quote": sc.get("quote_or_value") or chief,
+            })
+        return out
+
+    return out
 
 
 def _build_citations(
@@ -356,10 +415,14 @@ def _build_citations(
 
     Three disjoint namespaces:
       G{i} — guideline chunks (RAG hits)
-      D{i} — extracted documents (lab PDFs, intake forms)
-      P{N} — patient-context lines, where N is the bracketed line number
-             from the PATIENT CONTEXT block. We parse the same numbering
-             the answer prompt told the model to cite.
+      D{i} — extracted documents (lab PDFs, intake forms). Each carries
+             ``extracted_results`` — verbatim quotes + page references so
+             the UI can show the physician the actual source text.
+      P{N} — patient-context lines. The UI side already builds rich
+             entries for these (typed as medication/lab/problem/etc.
+             with scroll_to anchors into the chart), so we emit a thin
+             record here purely for audit/eval — PHP drops these from
+             the displayed source map and lets the JS layer win.
     """
     citations: list[dict[str, Any]] = []
     for i, chunk in enumerate(guideline_chunks, start=1):
@@ -373,6 +436,7 @@ def _build_citations(
             "ref": f"D{i}",
             "source_type": doc.get("doc_type", "document"),
             "openemr_doc_id": doc.get("openemr_doc_id"),
+            "extracted_results": _doc_extracted_results(doc),
         })
     for line in patient_context.splitlines():
         m = _PATIENT_CONTEXT_LINE_RE.match(line)
@@ -384,3 +448,45 @@ def _build_citations(
             "text": m.group(2),
         })
     return citations
+
+
+def _build_provenance_summary(
+    guideline_chunks: list[dict[str, Any]],
+    extracted_docs: list[dict[str, Any]],
+    has_patient_context: bool,
+) -> str:
+    """One-line natural-language summary of what the agent looked at.
+
+    Renders above the answer so the physician knows the corpus the agent
+    drew from before deciding whether to trust it.
+    """
+    parts: list[str] = []
+
+    if extracted_docs:
+        by_type: dict[str, int] = {}
+        for doc in extracted_docs:
+            t = doc.get("doc_type", "document")
+            by_type[t] = by_type.get(t, 0) + 1
+        labels = {"lab_pdf": "uploaded lab", "intake_form": "intake form"}
+        for t, n in by_type.items():
+            label = labels.get(t, "document")
+            parts.append(f"{n} {label}{'s' if n > 1 else ''}")
+
+    if guideline_chunks:
+        family_counts: dict[str, int] = {}
+        for chunk in guideline_chunks:
+            m = _GUIDELINE_FAMILY_RE.search(chunk.get("source_ref") or "")
+            family = m.group(1) if m else "guideline"
+            family_counts[family] = family_counts.get(family, 0) + 1
+        total = sum(family_counts.values())
+        breakdown = ", ".join(f"{n} {fam}" for fam, n in family_counts.items())
+        parts.append(f"{total} guideline section{'s' if total > 1 else ''} ({breakdown})")
+
+    if has_patient_context:
+        parts.append("patient's chart")
+
+    if not parts:
+        return "Answered without external sources."
+    if len(parts) == 1:
+        return f"Reviewed: {parts[0]}."
+    return "Reviewed: " + " · ".join(parts) + "."

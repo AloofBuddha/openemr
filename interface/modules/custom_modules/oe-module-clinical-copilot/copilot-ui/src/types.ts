@@ -4,12 +4,20 @@
 export type Status = 'idle' | 'loading' | 'streaming' | 'live' | 'cached' | 'error';
 
 export interface SourceField { key: string; value: string; }
+export interface ExtractedResult {
+  label: string;          // e.g. "Hemoglobin A1c", "Allergy: Penicillin"
+  value: string;          // e.g. "9.2 %", "anaphylaxis"
+  abnormal?: string | null; // 'H' | 'L' | 'C' | 'N' for labs
+  page: string;           // "page 2", "Section 4.3"
+  quote: string;          // verbatim text from the source PDF
+}
 export interface CiteSource {
   type: string;
   label: string;
   fields: SourceField[];
   scroll_to?: string;
   doc_url?: string;
+  extracted_results?: ExtractedResult[];
 }
 
 export interface SnapshotPatient { name: string; age: string; sex: string; dob: string; }
@@ -88,6 +96,7 @@ export interface Message {
   isError?: boolean;
   retryText?: string;
   routing?: RoutingStep[];
+  provenance?: string;     // natural-language source summary, shown above answer
   // 'system' messages are produced locally (e.g. the synthetic intake summary)
   // and excluded from the history sent to the LLM, so the BRIEF prompt still
   // sees a single user turn and emits the 3-chip structure.

@@ -961,6 +961,94 @@
 }
 .copilot-modal-row .copilot-modal-category { flex: 1; }
 
+/* ── Provenance line (above each agent answer) ────────────────────────── */
+.copilot-provenance {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #5a6b7d;
+  background: #f4f7fb;
+  border-left: 3px solid #5b9bd5;
+  padding: 5px 9px;
+  margin: 0 0 7px 0;
+  border-radius: 0 4px 4px 0;
+  line-height: 1.4;
+}
+.copilot-provenance-icon {
+  flex-shrink: 0;
+  color: #5b9bd5;
+}
+
+/* ── Source drawer: verbatim-quote layout for [[DN]] document citations ── */
+.copilot-drawer-section-label {
+  margin: 0 0 8px 0;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5a7a96;
+}
+.copilot-drawer-quotes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.copilot-drawer-quote-item {
+  padding: 8px 0;
+  border-bottom: 1px solid #eef2f7;
+}
+.copilot-drawer-quote-item:last-child { border-bottom: none; }
+.copilot-drawer-quote-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.copilot-drawer-quote-label {
+  font-weight: 600;
+  font-size: 12px;
+  color: #1a2d40;
+}
+.copilot-drawer-quote-value {
+  font-size: 12px;
+  color: #2c4a66;
+  background: #eef4fa;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.copilot-drawer-quote-flag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #c0392b;
+  background: #fde8e8;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+}
+.copilot-drawer-quote-page {
+  font-size: 10px;
+  color: #6e8ca6;
+  font-style: italic;
+  margin-left: auto;
+}
+.copilot-drawer-quote-text {
+  margin: 4px 0 0 0;
+  padding: 4px 10px;
+  border-left: 2px solid #c5d8ec;
+  font-size: 11px;
+  color: #4a5e72;
+  font-style: italic;
+  line-height: 1.4;
+  background: #fafcfe;
+}
+
+/* ── ehr_record fallback (PHP no longer emits these, but guard rendering) ── */
+.copilot-drawer-type-ehr_record { background: #4a5e72; color: #fff; }
+.copilot-cite-ehr_record       { border-bottom-color: #4a5e72; }
+.copilot-cite-ehr_record:hover { background: #eef2f7; }
+
 /* ── Agent routing trace (multi-agent observability) ───────────────────── */
 .copilot-routing {
   margin-top: 10px;

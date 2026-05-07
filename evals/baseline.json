@@ -105,8 +105,8 @@
     "total": 20
   },
   "graph.factually_consistent": {
-    "passed": 19,
-    "pct": 95.0,
+    "passed": 20,
+    "pct": 100.0,
     "total": 20
   },
   "graph.no_phi_in_logs": {

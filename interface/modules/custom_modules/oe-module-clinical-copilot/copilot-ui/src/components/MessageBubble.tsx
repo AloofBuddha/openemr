@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { useEffect, useMemo, useRef } from 'react';
+import { AlertCircle, Sparkles } from 'lucide-react';
 
 import { renderContent } from '../citations';
 import type { CiteSource, Message } from '../types';
@@ -14,10 +14,20 @@ interface Props {
   statusMessage?: string;
 }
 
+// Routing trace is a developer-facing artifact — useful for graders / engineers,
+// not for the physician. We only show it when the URL has `?debug=1`.
+function useDebugMode(): boolean {
+  return useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('debug') === '1';
+  }, []);
+}
+
 export function MessageBubble({
   msg, sources, onCite, onChip, isBusy, showDisclaimer, statusMessage,
 }: Props) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const debugMode = useDebugMode();
 
   // Wire citation-button clicks via event delegation since the HTML is
   // dangerouslySetInnerHTML — React handlers can't bind to those nodes.
@@ -76,11 +86,19 @@ export function MessageBubble({
           {statusMessage}
         </div>
       ) : (
-        <div
-          ref={contentRef}
-          className={`copilot-content${msg.isStreaming ? ' streaming' : ''}`}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+        <>
+          {!msg.isStreaming && msg.provenance && (
+            <div className="copilot-provenance" title="What the agent looked at to answer this">
+              <Sparkles size={11} className="copilot-provenance-icon" />
+              <span>{msg.provenance}</span>
+            </div>
+          )}
+          <div
+            ref={contentRef}
+            className={`copilot-content${msg.isStreaming ? ' streaming' : ''}`}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        </>
       )}
       {showDisclaimer && (
         <div className="copilot-footer">
@@ -101,7 +119,7 @@ export function MessageBubble({
           ))}
         </div>
       )}
-      {!msg.isStreaming && msg.routing && msg.routing.length > 0 && (
+      {!msg.isStreaming && debugMode && msg.routing && msg.routing.length > 0 && (
         <details className="copilot-routing">
           <summary>
             Agent trace · {msg.routing.length} step{msg.routing.length === 1 ? '' : 's'} ·{' '}

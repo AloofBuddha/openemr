@@ -118,6 +118,13 @@ function sseEmit(string $event, string $data): void
 }
 
 // --- Build sources map from citations array ---
+//
+// Only G (guideline) and D (extracted document) refs are translated into
+// displayed sources here. P (patient-context) refs are intentionally
+// skipped: the JS layer already builds rich entries for those — typed as
+// medication/lab/problem/etc. with scroll_to anchors that jump the
+// chart UI to the right OpenEMR section — and overwriting them with thin
+// records loses that provenance.
 function buildSourcesMap(array $citations, int $pid): array
 {
     $sources = [];
@@ -132,36 +139,34 @@ function buildSourcesMap(array $citations, int $pid): array
                 'label'  => (string) ($cit['source_ref'] ?? "Guideline $ref"),
                 'fields' => array_values(array_filter([
                     ['key' => 'Source',  'value' => (string) ($cit['source_ref'] ?? '')],
-                    ['key' => 'Excerpt', 'value' => substr((string) ($cit['text'] ?? ''), 0, 250)],
+                    ['key' => 'Excerpt', 'value' => substr((string) ($cit['text'] ?? ''), 0, 600)],
                 ], static fn(array $f): bool => $f['value'] !== '')),
             ];
         } elseif (str_starts_with($ref, 'D')) {
-            // Extracted document citation (uploaded lab PDF / intake form).
+            // Extracted document — surface the verbatim quote + page from
+            // each extracted result so the physician sees the literal text
+            // the model is grounding on, not just doc-level metadata.
             $docId  = isset($cit['openemr_doc_id']) ? (int) $cit['openemr_doc_id'] : 0;
             $docUrl = $docId > 0
                 ? "/controller.php?document&retrieve&patient_id={$pid}&document_id={$docId}&as_file=false"
                 : '';
+
+            $rawType  = (string) ($cit['source_type'] ?? 'document');
+            $typeLbl  = ucfirst(str_replace('_', ' ', $rawType));
+            $results  = is_array($cit['extracted_results'] ?? null) ? $cit['extracted_results'] : [];
+
             $sources[$ref] = [
-                'type'    => 'document',
-                'label'   => ucfirst(str_replace('_', ' ', (string) ($cit['source_type'] ?? 'document'))),
-                'doc_url' => $docUrl,
-                'fields'  => array_values(array_filter([
-                    ['key' => 'Type',   'value' => (string) ($cit['source_type'] ?? 'document')],
+                'type'              => 'document',
+                'label'             => $typeLbl,
+                'doc_url'           => $docUrl,
+                'extracted_results' => $results,
+                'fields'            => [
+                    ['key' => 'Type',   'value' => $rawType],
                     ['key' => 'Doc ID', 'value' => $docId > 0 ? (string) $docId : ''],
-                ], static fn(array $f): bool => $f['value'] !== '')),
-            ];
-        } elseif (str_starts_with($ref, 'P')) {
-            // Patient-context line (numbered EHR record fact passed in patient_context).
-            $text = (string) ($cit['text'] ?? '');
-            $sources[$ref] = [
-                'type'   => 'ehr_record',
-                'label'  => $text !== '' ? $text : "Patient record line $ref",
-                'fields' => array_values(array_filter([
-                    ['key' => 'From',   'value' => 'Patient record'],
-                    ['key' => 'Detail', 'value' => substr($text, 0, 250)],
-                ], static fn(array $f): bool => $f['value'] !== '')),
+                ],
             ];
         }
+        // P-prefixed refs intentionally not handled here — see header comment.
     }
     return $sources;
 }
@@ -189,11 +194,12 @@ $evtType             = '';
 $sourcesEmitted      = false;
 $suggestionsEmitted  = false;
 $routingEmitted      = false;
+$provenanceEmitted   = false;
 $doneEmitted         = false;
 $gotAnyData          = false;
 
 $writeCallback = function (mixed $ch, string $data) use (
-    &$lineBuffer, &$evtType, &$sourcesEmitted, &$suggestionsEmitted, &$routingEmitted, &$doneEmitted, &$gotAnyData, $pid
+    &$lineBuffer, &$evtType, &$sourcesEmitted, &$suggestionsEmitted, &$routingEmitted, &$provenanceEmitted, &$doneEmitted, &$gotAnyData, $pid
 ): int {
     $gotAnyData = true;
     $lineBuffer .= $data;
@@ -214,6 +220,10 @@ $writeCallback = function (mixed $ch, string $data) use (
 
             if ($evtType === 'status') {
                 sseEmit('status', $payload);
+
+            } elseif ($evtType === 'provenance' && !$provenanceEmitted) {
+                sseEmit('provenance', $payload);
+                $provenanceEmitted = true;
 
             } elseif ($evtType === 'citations' && !$sourcesEmitted) {
                 $parsed  = json_decode($payload, true);

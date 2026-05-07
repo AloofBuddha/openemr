@@ -54,7 +54,30 @@ export function SourceDrawer({ source, onClose, width }: Props) {
         <button className="copilot-drawer-close" onClick={onClose} title="Close"><X size={14} /></button>
       </div>
       <div className="copilot-drawer-body">
-        {source.fields?.length > 0 ? (
+        {source.extracted_results && source.extracted_results.length > 0 ? (
+          <>
+            <p className="copilot-drawer-section-label">Extracted from this document</p>
+            <ul className="copilot-drawer-quotes">
+              {source.extracted_results.map((r, i) => (
+                <li key={i} className="copilot-drawer-quote-item">
+                  <div className="copilot-drawer-quote-row">
+                    <span className="copilot-drawer-quote-label">{r.label}</span>
+                    {r.value && <span className="copilot-drawer-quote-value">{r.value}</span>}
+                    {r.abnormal && r.abnormal !== 'N' && (
+                      <span className="copilot-drawer-quote-flag">{r.abnormal}</span>
+                    )}
+                    {r.page && <span className="copilot-drawer-quote-page">{r.page}</span>}
+                  </div>
+                  {r.quote && (
+                    <blockquote className="copilot-drawer-quote-text">
+                      &ldquo;{r.quote}&rdquo;
+                    </blockquote>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : source.fields?.length > 0 ? (
           <table className="copilot-drawer-table">
             <tbody>
               {source.fields.map((f, i) => (
