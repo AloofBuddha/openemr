@@ -481,19 +481,38 @@ export function useCopilotChat(
       if (!items.length) return { count: 0, docIds: [] };
 
       // Merge each extraction into snapshot (updating ref synchronously)
+      // and add the source document so it shows in the snapshot's Documents list.
+      const todayIso = new Date().toISOString().slice(0, 10);
       for (const item of items) {
         addIntakeToSnapshot(item.extraction);
+        setSnapshot(prev => {
+          if (!prev) return prev;
+          const next = {
+            ...prev,
+            documents: [{ id: item.doc_id, name: item.doc_name, date: todayIso }, ...prev.documents],
+          };
+          snapshotRef.current = next;
+          return next;
+        });
         setUploadedDocIds(prev => [...prev, item.doc_id]);
         uploadedDocIdsRef.current = [...uploadedDocIdsRef.current, item.doc_id];
       }
 
-      // Add a synthetic message summarising what was extracted
-      setMessages(prev => [...prev, {
+      // Add a synthetic message summarising what was extracted. Update
+      // messagesRef synchronously so saveCache (called by the reload path
+      // immediately after this returns) sees the new message — useEffect
+      // hasn't run yet at that point.
+      const syntheticMsg: Message = {
         id: uid(),
         role: 'assistant',
         content: _buildIntakeProcessedMessage(items),
         isStreaming: false,
-      }]);
+      };
+      setMessages(prev => {
+        const next = [...prev, syntheticMsg];
+        messagesRef.current = next;
+        return next;
+      });
 
       return { count: items.length, docIds: items.map(i => i.doc_id) };
     } catch {
