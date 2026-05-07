@@ -1,0 +1,42 @@
+# GitLab CI for the AgentForge W2 eval gate.
+#
+# This is the "PR-blocking CI" the PRD requires (Section 6, "Eval-driven CI
+# gate"). The pre-push Git hook (scripts/git-hooks/pre-push) catches
+# regressions on a developer's laptop; this is the authoritative server-side
+# backstop. If the hook is bypassed (--no-verify, GAUNTLET_SKIP_GATE=1) the
+# regression still gets caught here and blocks the merge.
+#
+# Triggers: every push to master and every merge request.
+#
+# Required CI variables (set in GitLab → Settings → CI/CD → Variables):
+#   ANTHROPIC_API_KEY  — for Haiku (supervisor) + Sonnet (answer assembler)
+#   COHERE_API_KEY     — optional; gate degrades to score-based ranking if absent
+#   LANGSMITH_API_KEY  — optional; emits per-call traces to the agent-forge project
+
+stages:
+  - eval-gate
+
+eval-gate:
+  stage: eval-gate
+  image: python:3.10-slim
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "master"
+  before_script:
+    - apt-get update -qq && apt-get install -qq -y git
+    - python -m venv copilot-agent/.venv
+    - copilot-agent/.venv/bin/pip install --quiet --upgrade pip
+    - copilot-agent/.venv/bin/pip install --quiet -r copilot-agent/requirements.txt
+  script:
+    - cd evals
+    - >
+      LANGCHAIN_TRACING_V2=${LANGSMITH_API_KEY:+true}
+      LANGCHAIN_API_KEY=${LANGSMITH_API_KEY:-}
+      LANGCHAIN_PROJECT=agent-forge
+      ../copilot-agent/.venv/bin/python check_gate.py --skip-brief
+  artifacts:
+    when: always
+    paths:
+      - evals/graph_gate_results.json
+    expire_in: 30 days
+  timeout: 30 minutes

@@ -28,6 +28,7 @@ final class PatientBriefTool
     private const MAX_RECENT_LABS  = 20;
     private const MAX_DOCUMENTS    = 10;
     private const APPT_HORIZON_DAYS = 60;
+    private const APPT_RECENT_PAST_DAYS = 7;
 
     public function __construct(private readonly PatientAccessGuard $accessGuard)
     {
@@ -96,11 +97,14 @@ final class PatientBriefTool
     }
 
     /**
-     * Today first; otherwise the next appointment within the horizon.
+     * Pick today's visit, the next upcoming, or — as a fallback — the most
+     * recent past appointment within APPT_RECENT_PAST_DAYS.
      *
-     * Named "today_appointment" in the public API for backwards-compatibility,
-     * but the lookup window is wider — useful when the physician opens a chart
-     * a few days before the visit.
+     * Named "today_appointment" in the public API for backwards-compatibility.
+     * The recent-past fallback exists because demo data dates drift; without
+     * it, every Margaret demo run after the seed date breaks silently. The
+     * brief still flags stale visits via the >6-month rule on last_encounter,
+     * so this fallback never hides clinically relevant gaps.
      *
      * @return array<string,mixed>|null
      */
@@ -108,6 +112,7 @@ final class PatientBriefTool
     {
         $today   = date('Y-m-d');
         $horizon = date('Y-m-d', strtotime('+' . self::APPT_HORIZON_DAYS . ' days'));
+
         $row = QueryUtils::querySingleRow(
             'SELECT pc_eid, pc_eventDate, pc_startTime, pc_title, pc_hometext
              FROM openemr_postcalendar_events
@@ -115,6 +120,20 @@ final class PatientBriefTool
              ORDER BY pc_eventDate ASC, pc_startTime ASC LIMIT 1',
             [$patientId, $today, $horizon]
         );
+
+        if (empty($row)) {
+            // Fall back to the most recent past appointment so demo data
+            // with a fixed event date still surfaces as the visit reason.
+            $recent = date('Y-m-d', strtotime('-' . self::APPT_RECENT_PAST_DAYS . ' days'));
+            $row = QueryUtils::querySingleRow(
+                'SELECT pc_eid, pc_eventDate, pc_startTime, pc_title, pc_hometext
+                 FROM openemr_postcalendar_events
+                 WHERE pc_pid = ? AND pc_eventDate < ? AND pc_eventDate >= ?
+                 ORDER BY pc_eventDate DESC, pc_startTime DESC LIMIT 1',
+                [$patientId, $today, $recent]
+            );
+        }
+
         if (empty($row)) {
             return null;
         }

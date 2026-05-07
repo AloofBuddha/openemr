@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# pre-push: run the W2 graph eval gate before allowing a push to remote.
+# Aborts the push if any rubric regresses more than 5pp vs evals/baseline.json.
+#
+# This is the PRD's "PR-blocking Git Hook" requirement (Section 6, Eval-driven
+# CI gate). The .gitlab-ci.yml workflow runs the same gate server-side, so a
+# bypass here ($GAUNTLET_SKIP_GATE=1, --no-verify) still gets caught at MR.
+#
+# Bypass for emergencies:
+#   GAUNTLET_SKIP_GATE=1 git push
+#
+# Install via:
+#   bash scripts/install-hooks.sh
+
+set -euo pipefail
+
+if [[ "${GAUNTLET_SKIP_GATE:-}" == "1" ]]; then
+    echo "⚠️  pre-push: GAUNTLET_SKIP_GATE=1 — eval gate skipped"
+    exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+EVALS_DIR="${REPO_ROOT}/evals"
+VENV_PYTHON="${REPO_ROOT}/copilot-agent/.venv/bin/python"
+
+if [[ ! -x "${VENV_PYTHON}" ]]; then
+    echo "❌ pre-push: copilot-agent venv missing (${VENV_PYTHON})."
+    echo "   Run: cd copilot-agent && python -m venv .venv && .venv/bin/pip install -r requirements.txt"
+    exit 1
+fi
+
+if [[ ! -f "${EVALS_DIR}/baseline.json" ]]; then
+    echo "❌ pre-push: evals/baseline.json missing — run check_gate.py --update-baseline first"
+    exit 1
+fi
+
+echo "→ pre-push: running W2 graph eval gate (graph-only, ~3-4 min)"
+echo "  Bypass with GAUNTLET_SKIP_GATE=1 if you absolutely must."
+echo
+
+cd "${EVALS_DIR}"
+if "${VENV_PYTHON}" check_gate.py --skip-brief; then
+    echo
+    echo "✅ pre-push: gate passed — push proceeding"
+    exit 0
+else
+    echo
+    echo "❌ pre-push: GATE FAILED — push aborted"
+    echo "   Fix the regression, or bypass with: GAUNTLET_SKIP_GATE=1 git push"
+    exit 1
+fi
