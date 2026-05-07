@@ -87,7 +87,14 @@ final class Orchestrator
         $this->emitEvent('snapshot', $this->contextBuilder->buildSnapshot($context['patient_data']));
         $this->emitEvent('sources', ['sources' => $context['sources']]);
 
-        $isBrief      = count($messages) === 1;
+        // BRIEF runs when the physician has only sent one message — the
+        // initial "brief me" request. Synthetic assistant messages from
+        // intake auto-processing don't count, so check user messages only.
+        $userMessageCount = count(array_filter(
+            $messages,
+            static fn(array $m): bool => ($m['role'] ?? '') === 'user',
+        ));
+        $isBrief = $userMessageCount === 1;
         $systemPrompt = $isBrief ? SystemPrompts::BRIEF : SystemPrompts::FOLLOWUP;
         $apiMessages  = $this->injectContextIntoFirstUserMessage($messages, $context['context_message']);
 
@@ -206,10 +213,12 @@ final class Orchestrator
     private function injectContextIntoFirstUserMessage(array $messages, string $contextMessage): array
     {
         $out = [];
-        foreach ($messages as $i => $msg) {
+        $injected = false;
+        foreach ($messages as $msg) {
             $content = $msg['content'];
-            if ($i === 0 && $msg['role'] === 'user') {
+            if (!$injected && $msg['role'] === 'user') {
                 $content = $contextMessage . "\n\n" . $content;
+                $injected = true;
             }
             $out[] = ['role' => $msg['role'], 'content' => $content];
         }

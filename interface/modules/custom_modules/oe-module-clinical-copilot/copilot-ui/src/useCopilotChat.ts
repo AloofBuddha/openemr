@@ -363,10 +363,10 @@ export function useCopilotChat(
         // After a lab upload, the OpenEMR procedure tables were updated
         // server-side. Reload so the patient cards re-render with the new
         // values. Cache rehydrates the copilot state on the way back in.
+        // Defer 1.5s so the user can see the answer settle before reload.
         if (sessionStorage.getItem(`copilot_reload_after_done_${pid}`) === '1') {
           sessionStorage.removeItem(`copilot_reload_after_done_${pid}`);
-          // Defer slightly so the cache write completes before reload.
-          setTimeout(() => { window.location.reload(); }, 250);
+          setTimeout(() => { window.location.reload(); }, 1500);
         }
         break;
       case 'error':
