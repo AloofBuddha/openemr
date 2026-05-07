@@ -8,9 +8,9 @@ import type { CiteSource } from './types';
 
 marked.setOptions({ gfm: true, breaks: true });
 
-const CITATION_PAIR_RE = /\[\[([PG]?\d+)\]\]([\s\S]*?)\[\[\/\1\]\]/g;
-const CITATION_TAG_RE  = /\[\[\/?[PG]?\d+\]\]/g;
-const CITE_SPLIT_RE    = /(\[\[[PG]?\d+\]\][\s\S]*?\[\[\/[PG]?\d+\]\])/g;
+const CITATION_PAIR_RE = /\[\[([PDG]?\d+)\]\]([\s\S]*?)\[\[\/\1\]\]/g;
+const CITATION_TAG_RE  = /\[\[\/?[PDG]?\d+\]\]/g;
+const CITE_SPLIT_RE    = /(\[\[[PDG]?\d+\]\][\s\S]*?\[\[\/[PDG]?\d+\]\])/g;
 
 const MIN_AUTO_LINK_PHRASE_LEN = 4;
 const SKIP_AUTO_LINK_TYPES     = new Set(['appointment', 'encounter']);

@@ -49,7 +49,7 @@ def format_guideline_sources(chunks: list[dict[str, Any]]) -> str:
 def summarise_extracted_docs(extracted_docs: list[dict[str, Any]]) -> str:
     """Convert extracted doc dicts to a human-readable summary for the prompt.
 
-    Each document is prefixed with its ``[[PN]]`` ref so the answer model
+    Each document is prefixed with its ``[[DN]]`` ref so the answer model
     can cite specific docs back.
     """
     if not extracted_docs:
@@ -65,13 +65,13 @@ def summarise_extracted_docs(extracted_docs: list[dict[str, Any]]) -> str:
         elif doc_type == "intake_form":
             lines.extend(_summarise_intake(i, doc_id, doc))
         else:
-            lines.append(f"[[P{i}]] Unknown document type (doc_id={doc_id})")
+            lines.append(f"[[D{i}]] Unknown document type (doc_id={doc_id})")
 
     return "\n".join(lines)
 
 
 def _summarise_lab(idx: int, doc_id: Any, results: list[dict[str, Any]]) -> list[str]:
-    out: list[str] = [f"[[P{idx}]] Lab Report (doc_id={doc_id}):"]
+    out: list[str] = [f"[[D{idx}]] Lab Report (doc_id={doc_id}):"]
     for r in results[:_LAB_RESULTS_LIMIT]:
         out.append(
             f"  - {r.get('test_name', '?')}: {r.get('value', '?')} {r.get('unit', '')} "
@@ -83,7 +83,7 @@ def _summarise_lab(idx: int, doc_id: Any, results: list[dict[str, Any]]) -> list
 
 
 def _summarise_intake(idx: int, doc_id: Any, doc: dict[str, Any]) -> list[str]:
-    out: list[str] = [f"[[P{idx}]] Intake Form (doc_id={doc_id}):"]
+    out: list[str] = [f"[[D{idx}]] Intake Form (doc_id={doc_id}):"]
     out.append(f"  Chief concern: {doc.get('chief_concern') or 'not stated'}")
 
     demo = doc.get("demographics") or {}

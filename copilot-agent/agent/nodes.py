@@ -42,14 +42,18 @@ guideline evidence provided below. Never fabricate clinical facts.
 
 CITATION RULES — MANDATORY, NO EXCEPTIONS:
 Every drug name, lab value, diagnosis, visit reason, and allergy you mention MUST be wrapped
-in citation markers. No clinical fact may appear without one.
+in citation markers. No clinical fact may appear without one. The three namespaces are
+distinct — never use [[PN]] for a document or [[DN]] for a patient-context line.
 - Patient record facts → [[PN]]the exact phrase[[/PN]]
   where N matches the line number in PATIENT CONTEXT (line [3] → [[P3]]...[[/P3]])
+- Extracted document facts → [[DN]]the exact phrase[[/DN]]
+  where N matches the [[DN]] index in EXTRACTED DOCUMENT DATA (e.g. [[D1]] = first doc)
 - Guideline evidence → [[GN]]the exact phrase[[/GN]]
   where N is the guideline number (e.g. [[G1]]...[[/G1]])
 
 Example of correct output:
 "The patient is taking [[P4]]Metformin 500mg[[/P4]] for [[P2]]Type 2 Diabetes[[/P2]].
+The recent lab shows [[D1]]A1c 9.2%[[/D1]].
 [[G1]]Guidelines recommend HbA1c target <7% for most adults[[/G1]]."
 
 Use "unknown" only when a fact is genuinely absent from both sources below.
@@ -296,7 +300,9 @@ async def answer_assembler_node(state: AgentState, deps: GraphDeps) -> dict:
 
     return {
         "answer": answer,
-        "citations": _build_citations(guideline_chunks, extracted_docs),
+        "citations": _build_citations(
+            guideline_chunks, extracted_docs, state.get("patient_context", "")
+        ),
         "suggestions": suggestions,
         "routing_log": routing_log,
     }
@@ -338,11 +344,23 @@ def _split_answer_and_suggestions(answer: str) -> tuple[str, list[str]]:
     return cleaned, [s for s in decoded if isinstance(s, str)]
 
 
+_PATIENT_CONTEXT_LINE_RE = re.compile(r"^\s*\[(\d+)\]\s*(.+?)\s*$")
+
+
 def _build_citations(
     guideline_chunks: list[dict[str, Any]],
     extracted_docs: list[dict[str, Any]],
+    patient_context: str = "",
 ) -> list[dict[str, Any]]:
-    """Produce the citation list surfaced to PHP/UI: one per guideline chunk + one per doc."""
+    """Build the citation list surfaced to PHP/UI.
+
+    Three disjoint namespaces:
+      G{i} — guideline chunks (RAG hits)
+      D{i} — extracted documents (lab PDFs, intake forms)
+      P{N} — patient-context lines, where N is the bracketed line number
+             from the PATIENT CONTEXT block. We parse the same numbering
+             the answer prompt told the model to cite.
+    """
     citations: list[dict[str, Any]] = []
     for i, chunk in enumerate(guideline_chunks, start=1):
         citations.append({
@@ -352,8 +370,17 @@ def _build_citations(
         })
     for i, doc in enumerate(extracted_docs, start=1):
         citations.append({
-            "ref": f"P{i}",
+            "ref": f"D{i}",
             "source_type": doc.get("doc_type", "document"),
             "openemr_doc_id": doc.get("openemr_doc_id"),
+        })
+    for line in patient_context.splitlines():
+        m = _PATIENT_CONTEXT_LINE_RE.match(line)
+        if not m:
+            continue
+        citations.append({
+            "ref": f"P{m.group(1)}",
+            "source_type": "ehr_record",
+            "text": m.group(2),
         })
     return citations

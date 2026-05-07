@@ -72,6 +72,12 @@ export interface ExtractionSummary {
   extraction_warnings?: string[];
 }
 
+export interface RoutingStep {
+  node: string;
+  decision: Record<string, unknown>;
+  duration_ms: number;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -81,6 +87,7 @@ export interface Message {
   isStreaming?: boolean;
   isError?: boolean;
   retryText?: string;
+  routing?: RoutingStep[];
   // 'system' messages are produced locally (e.g. the synthetic intake summary)
   // and excluded from the history sent to the LLM, so the BRIEF prompt still
   // sees a single user turn and emits the 3-chip structure.

@@ -60,7 +60,7 @@ def test_summarise_extracted_docs_lab_lists_results_with_indexed_ref() -> None:
         ],
     }]
     out = summarise_extracted_docs(docs)
-    assert "[[P1]] Lab Report (doc_id=42)" in out
+    assert "[[D1]] Lab Report (doc_id=42)" in out
     assert "HbA1c" in out and "7.2" in out and "H" in out
 
 
@@ -75,14 +75,14 @@ def test_summarise_extracted_docs_intake_lists_meds_and_allergies() -> None:
         "allergies": [{"allergen": "penicillin", "reaction": "rash"}],
     }]
     out = summarise_extracted_docs(docs)
-    assert "[[P1]] Intake Form (doc_id=99)" in out
+    assert "[[D1]] Intake Form (doc_id=99)" in out
     assert "fatigue" in out
     assert "Metformin" in out
     assert "penicillin" in out and "rash" in out
 
 
 def test_summarise_extracted_docs_handles_unknown_doc_type() -> None:
-    """Unknown doc_type still gets a [[PN]] entry so the prompt isn't malformed."""
+    """Unknown doc_type still gets a [[DN]] entry so the prompt isn't malformed."""
     docs = [{"doc_type": "weird", "openemr_doc_id": 5}]
     out = summarise_extracted_docs(docs)
-    assert "[[P1]]" in out and "doc_id=5" in out
+    assert "[[D1]]" in out and "doc_id=5" in out

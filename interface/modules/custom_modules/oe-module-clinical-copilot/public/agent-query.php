@@ -135,8 +135,8 @@ function buildSourcesMap(array $citations, int $pid): array
                     ['key' => 'Excerpt', 'value' => substr((string) ($cit['text'] ?? ''), 0, 250)],
                 ], static fn(array $f): bool => $f['value'] !== '')),
             ];
-        } elseif (str_starts_with($ref, 'P')) {
-            // Patient document citation (extracted lab/intake doc)
+        } elseif (str_starts_with($ref, 'D')) {
+            // Extracted document citation (uploaded lab PDF / intake form).
             $docId  = isset($cit['openemr_doc_id']) ? (int) $cit['openemr_doc_id'] : 0;
             $docUrl = $docId > 0
                 ? "/controller.php?document&retrieve&patient_id={$pid}&document_id={$docId}&as_file=false"
@@ -148,6 +148,17 @@ function buildSourcesMap(array $citations, int $pid): array
                 'fields'  => array_values(array_filter([
                     ['key' => 'Type',   'value' => (string) ($cit['source_type'] ?? 'document')],
                     ['key' => 'Doc ID', 'value' => $docId > 0 ? (string) $docId : ''],
+                ], static fn(array $f): bool => $f['value'] !== '')),
+            ];
+        } elseif (str_starts_with($ref, 'P')) {
+            // Patient-context line (numbered EHR record fact passed in patient_context).
+            $text = (string) ($cit['text'] ?? '');
+            $sources[$ref] = [
+                'type'   => 'ehr_record',
+                'label'  => $text !== '' ? $text : "Patient record line $ref",
+                'fields' => array_values(array_filter([
+                    ['key' => 'From',   'value' => 'Patient record'],
+                    ['key' => 'Detail', 'value' => substr($text, 0, 250)],
                 ], static fn(array $f): bool => $f['value'] !== '')),
             ];
         }
@@ -177,11 +188,12 @@ $lineBuffer          = '';
 $evtType             = '';
 $sourcesEmitted      = false;
 $suggestionsEmitted  = false;
+$routingEmitted      = false;
 $doneEmitted         = false;
 $gotAnyData          = false;
 
 $writeCallback = function (mixed $ch, string $data) use (
-    &$lineBuffer, &$evtType, &$sourcesEmitted, &$suggestionsEmitted, &$doneEmitted, &$gotAnyData, $pid
+    &$lineBuffer, &$evtType, &$sourcesEmitted, &$suggestionsEmitted, &$routingEmitted, &$doneEmitted, &$gotAnyData, $pid
 ): int {
     $gotAnyData = true;
     $lineBuffer .= $data;
@@ -219,6 +231,10 @@ $writeCallback = function (mixed $ch, string $data) use (
             } elseif ($evtType === 'suggestions' && !$suggestionsEmitted) {
                 sseEmit('suggestions', $payload);
                 $suggestionsEmitted = true;
+
+            } elseif ($evtType === 'routing' && !$routingEmitted) {
+                sseEmit('routing', $payload);
+                $routingEmitted = true;
 
             } elseif ($evtType === 'done' && !$doneEmitted) {
                 if (!$suggestionsEmitted) {

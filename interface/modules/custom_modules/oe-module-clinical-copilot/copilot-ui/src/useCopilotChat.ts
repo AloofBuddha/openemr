@@ -10,6 +10,7 @@ import type {
   CiteSource,
   ExtractionSummary,
   Message,
+  RoutingStep,
   Snapshot,
   SnapshotAllergy,
   SnapshotDoc,
@@ -355,6 +356,13 @@ export function useCopilotChat(
         const chips = (data.suggestions as string[]) ?? [];
         setMessages(prev => prev.map(m =>
           m.id === assistantId ? { ...m, suggestions: chips } : m
+        ));
+        break;
+      }
+      case 'routing': {
+        const steps = (data.routing_log as RoutingStep[]) ?? [];
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId ? { ...m, routing: steps } : m
         ));
         break;
       }

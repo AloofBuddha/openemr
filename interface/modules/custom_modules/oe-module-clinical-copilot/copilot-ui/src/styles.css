@@ -960,3 +960,50 @@
   padding: 0 16px 8px;
 }
 .copilot-modal-row .copilot-modal-category { flex: 1; }
+
+/* ── Agent routing trace (multi-agent observability) ───────────────────── */
+.copilot-routing {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #6b7280;
+  border-top: 1px dashed #e5e7eb;
+  padding-top: 6px;
+}
+.copilot-routing summary {
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  list-style: none;
+}
+.copilot-routing summary::before {
+  content: '▸ ';
+  display: inline-block;
+  width: 1em;
+}
+.copilot-routing[open] summary::before { content: '▾ '; }
+.copilot-routing-list {
+  margin: 6px 0 0;
+  padding: 0 0 0 20px;
+  list-style: decimal;
+}
+.copilot-routing-list li { margin: 4px 0; }
+.copilot-routing-node {
+  display: inline-block;
+  font-weight: 600;
+  color: #374151;
+  min-width: 130px;
+}
+.copilot-routing-ms {
+  display: inline-block;
+  color: #9ca3af;
+  margin-right: 8px;
+  min-width: 50px;
+}
+.copilot-routing-decision {
+  display: block;
+  margin: 2px 0 4px 138px;
+  font-size: 10px;
+  color: #4b5563;
+  word-break: break-word;
+  white-space: pre-wrap;
+}

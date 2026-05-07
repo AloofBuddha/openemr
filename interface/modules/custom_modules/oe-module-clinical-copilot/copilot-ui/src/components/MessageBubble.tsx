@@ -101,6 +101,25 @@ export function MessageBubble({
           ))}
         </div>
       )}
+      {!msg.isStreaming && msg.routing && msg.routing.length > 0 && (
+        <details className="copilot-routing">
+          <summary>
+            Agent trace · {msg.routing.length} step{msg.routing.length === 1 ? '' : 's'} ·{' '}
+            {msg.routing.reduce((sum, s) => sum + (s.duration_ms ?? 0), 0)}ms
+          </summary>
+          <ol className="copilot-routing-list">
+            {msg.routing.map((step, i) => (
+              <li key={i}>
+                <span className="copilot-routing-node">{step.node}</span>
+                <span className="copilot-routing-ms">{step.duration_ms}ms</span>
+                <code className="copilot-routing-decision">
+                  {JSON.stringify(step.decision)}
+                </code>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
     </div>
   );
 }

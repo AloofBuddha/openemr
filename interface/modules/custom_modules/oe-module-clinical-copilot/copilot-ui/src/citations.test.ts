@@ -51,6 +51,22 @@ describe('replaceCites', () => {
   it('returns text unchanged when no citation markers are present', () => {
     expect(replaceCites('plain text', {})).toBe('plain text');
   });
+
+  it('handles [[DN]] document citations alongside [[PN]] EHR-record citations', () => {
+    const docSrc: CiteSource = {
+      type: 'document',
+      label: 'Lab pdf',
+      fields: [{ key: 'Doc ID', value: '101' }],
+      doc_url: '/foo',
+    };
+    const out = replaceCites(
+      'Lab shows [[D1]]A1c 9.2%[[/D1]] in [[P3]]58yo M[[/P3]].',
+      { D1: docSrc, P3: med },
+    );
+    expect(out).toContain('data-src="D1"');
+    expect(out).toContain('data-src="P3"');
+    expect(out).toContain('copilot-cite-document');
+  });
 });
 
 // ─── buildPhraseMap ────────────────────────────────────────────────────────

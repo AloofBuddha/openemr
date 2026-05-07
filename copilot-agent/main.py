@@ -142,6 +142,7 @@ async def query(req: QueryRequest, request: Request) -> StreamingResponse:
         citations   — JSON {citations: [...]} so PHP can build the source map
         delta       — repeated; small text chunks of the streaming answer
         suggestions — JSON {suggestions: [...]} for follow-up question chips
+        routing     — JSON {routing_log: [...]} supervisor + worker decisions
         done        — terminator
     """
     return StreamingResponse(
@@ -154,6 +155,7 @@ async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
     answer = "An internal error occurred while processing your query."
     citations: list = []
     suggestions: list = []
+    routing_log: list = []
 
     try:
         # Pull in any intake forms uploaded (e.g. by front desk) but not yet seen by the agent.
@@ -194,6 +196,7 @@ async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
         answer = result.get("answer") or "I was unable to generate an answer."
         citations = result.get("citations", [])
         suggestions = result.get("suggestions", [])
+        routing_log = result.get("routing_log", [])
 
     except BaseException:
         # Catch CancelledError (from asyncio task cancellation) and any other
@@ -204,7 +207,29 @@ async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
     async for chunk in stream_text_in_chunks(answer):
         yield chunk
     yield event("suggestions", {"suggestions": suggestions})
+    yield event("routing", {"routing_log": _scrub_routing_log(routing_log)})
     yield event("done", "{}")
+
+
+def _scrub_routing_log(routing_log: list[dict]) -> list[dict]:
+    """Remove the supervisor's free-text reasoning before emitting the log.
+
+    Haiku's reasoning string occasionally includes a paraphrase of the
+    physician's query, which can carry PHI through to the UI. Keep the
+    machine-readable parts (intent, next_workers, durations, counts) — drop
+    the free-text. The structured intent + next_workers list is sufficient
+    to render an audit trace.
+    """
+    scrubbed: list[dict] = []
+    for step in routing_log:
+        decision = dict(step.get("decision") or {})
+        decision.pop("reasoning", None)
+        scrubbed.append({
+            "node": step.get("node"),
+            "decision": decision,
+            "duration_ms": step.get("duration_ms"),
+        })
+    return scrubbed
 
 
 def _gather_extractions(
