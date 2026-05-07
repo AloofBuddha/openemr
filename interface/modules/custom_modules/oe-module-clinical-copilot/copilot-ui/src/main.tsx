@@ -21,6 +21,10 @@ window.copilotInit = (pid, apiUrl, csrfToken, physicianId, webRoot, categories) 
   const widget = document.getElementById('copilot-widget');
   if (!widget) return;
 
+  // Guard against duplicate calls (Bootstrap event fires more than once per page).
+  if (widget.dataset.copilotInitialized) return;
+  widget.dataset.copilotInitialized = '1';
+
   // Move to top of .main div (full-width, above two-column card layout)
   const mainDiv =
     document.querySelector<HTMLElement>('.main.mb-1') ??

@@ -151,50 +151,54 @@ async def query(req: QueryRequest, request: Request) -> StreamingResponse:
 
 
 async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
-    # Pull in any intake forms uploaded (e.g. by front desk) but not yet seen by the agent.
-    unprocessed = state.patient_index.get_unprocessed(req.patient_id)
-    if unprocessed:
-        extra_ids = [item["doc_id"] for item in unprocessed]
-        logger.info(
-            "Auto-including %d unprocessed intake form(s) for patient_id=%d: %s",
-            len(extra_ids), req.patient_id, extra_ids,
-        )
-        for item in unprocessed:
-            state.patient_index.mark_processed(req.patient_id, item["doc_id"])
-        all_doc_ids = list(set(req.doc_ids + extra_ids))
-    else:
-        all_doc_ids = req.doc_ids
-
-    pre_extracted, missing_ids = _gather_extractions(all_doc_ids, state.extraction_cache)
-    if missing_ids:
-        logger.warning("doc_ids not found in any cache (not yet ingested): %s", missing_ids)
-
-    initial_state = {
-        "query": req.query,
-        "patient_id": req.patient_id,
-        "doc_ids": req.doc_ids,
-        "extracted_docs": pre_extracted,
-        "guideline_chunks": [],
-        "patient_context": req.patient_context,
-        "answer": "",
-        "citations": [],
-        "suggestions": [],
-        "routing_log": [],
-        "iteration": 0,
-    }
-
-    yield event("status", {"text": "Searching clinical guidelines..."})
+    answer = "An internal error occurred while processing your query."
+    citations: list = []
+    suggestions: list = []
 
     try:
+        # Pull in any intake forms uploaded (e.g. by front desk) but not yet seen by the agent.
+        unprocessed = state.patient_index.get_unprocessed(req.patient_id)
+        if unprocessed:
+            extra_ids = [item["doc_id"] for item in unprocessed]
+            logger.info(
+                "Auto-including %d unprocessed intake form(s) for patient_id=%d: %s",
+                len(extra_ids), req.patient_id, extra_ids,
+            )
+            for item in unprocessed:
+                state.patient_index.mark_processed(req.patient_id, item["doc_id"])
+            all_doc_ids = list(set(req.doc_ids + extra_ids))
+        else:
+            all_doc_ids = req.doc_ids
+
+        pre_extracted, missing_ids = _gather_extractions(all_doc_ids, state.extraction_cache)
+        if missing_ids:
+            logger.warning("doc_ids not found in any cache (not yet ingested): %s", missing_ids)
+
+        initial_state = {
+            "query": req.query,
+            "patient_id": req.patient_id,
+            "doc_ids": req.doc_ids,
+            "extracted_docs": pre_extracted,
+            "guideline_chunks": [],
+            "patient_context": req.patient_context,
+            "answer": "",
+            "citations": [],
+            "suggestions": [],
+            "routing_log": [],
+            "iteration": 0,
+        }
+
+        yield event("status", {"text": "Searching clinical guidelines..."})
+
         result = await state.graph.ainvoke(initial_state)
         answer = result.get("answer") or "I was unable to generate an answer."
         citations = result.get("citations", [])
         suggestions = result.get("suggestions", [])
-    except Exception:
-        logger.exception("Graph invocation failed for patient_id=%d", req.patient_id)
-        answer = "An internal error occurred while processing your query."
-        citations = []
-        suggestions = []
+
+    except BaseException:
+        # Catch CancelledError (from asyncio task cancellation) and any other
+        # unexpected exception so we always emit a done event to the PHP proxy.
+        logger.exception("Query stream failed for patient_id=%d", req.patient_id)
 
     yield event("citations", {"citations": citations})
     async for chunk in stream_text_in_chunks(answer):

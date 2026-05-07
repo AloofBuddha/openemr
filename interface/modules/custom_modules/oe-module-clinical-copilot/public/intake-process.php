@@ -22,6 +22,9 @@
  * @license   https://github.com/openemr/openemr/blob/master/LICENSE GNU General Public License 3
  */
 
+// Suppress PHP notices/warnings from leaking into the JSON response body.
+ini_set('display_errors', '0');
+
 $ignoreAuth = true;
 require_once dirname(__FILE__, 5) . '/globals.php';
 require_once __DIR__ . '/_bootstrap.php';
@@ -107,11 +110,18 @@ if ($curlError !== '' || $httpCode !== 200 || !is_string($body)) {
 $data = json_decode($body, true);
 if (is_array($data) && !empty($data['processed'])) {
     $physicianUser = (string) ($session->get('authUser') ?? '');
+    // Buffer any stray output from OpenEMR internal code paths so it can't
+    // corrupt the JSON response body.
+    ob_start();
     foreach ($data['processed'] as $item) {
         $extraction = $item['extraction'] ?? null;
         if (is_array($extraction) && ($extraction['doc_type'] ?? '') === 'intake_form') {
             writeIntakeToOpenEMR($extraction, (int) $pid, $physicianId, $physicianUser);
         }
+    }
+    $strayOutput = ob_get_clean();
+    if ($strayOutput !== '' && $strayOutput !== false) {
+        error_log('[CopilotIntakeProcess] Suppressed stray output during write-back: ' . substr($strayOutput, 0, 300));
     }
 }
 
