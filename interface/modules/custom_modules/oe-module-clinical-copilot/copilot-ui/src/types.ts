@@ -4,12 +4,23 @@
 export type Status = 'idle' | 'loading' | 'streaming' | 'live' | 'cached' | 'error';
 
 export interface SourceField { key: string; value: string; }
+export interface BBox {
+  page: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  page_width: number;
+  page_height: number;
+}
+
 export interface ExtractedResult {
   label: string;          // e.g. "Hemoglobin A1c", "Allergy: Penicillin"
   value: string;          // e.g. "9.2 %", "anaphylaxis"
   abnormal?: string | null; // 'H' | 'L' | 'C' | 'N' for labs
   page: string;           // "page 2", "Section 4.3"
   quote: string;          // verbatim text from the source PDF
+  bbox?: BBox | null;     // optional — present when pdfplumber matched the value
 }
 export interface CiteSource {
   type: string;
@@ -17,6 +28,7 @@ export interface CiteSource {
   fields: SourceField[];
   scroll_to?: string;
   doc_url?: string;
+  openemr_doc_id?: number;  // present on document-type citations; used for bbox page-image URL
   extracted_results?: ExtractedResult[];
 }
 

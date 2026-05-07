@@ -159,6 +159,7 @@ function buildSourcesMap(array $citations, int $pid): array
                 'type'              => 'document',
                 'label'             => $typeLbl,
                 'doc_url'           => $docUrl,
+                'openemr_doc_id'    => $docId > 0 ? $docId : null,
                 'extracted_results' => $results,
                 'fields'            => [
                     ['key' => 'Type',   'value' => $rawType],

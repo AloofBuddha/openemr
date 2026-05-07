@@ -206,6 +206,8 @@ export function CopilotPanel({
               source={activeSource}
               onClose={() => setActiveSource(null)}
               width={drawerWidth}
+              webRoot={webRoot}
+              docId={activeSource.openemr_doc_id}
             />
           </>
         )}
