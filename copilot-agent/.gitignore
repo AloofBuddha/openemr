@@ -6,3 +6,4 @@ __pycache__/
 extraction_cache/
 .chroma/
 chroma_db/
+patient_intake_index/
