@@ -6,7 +6,7 @@
 open Margaret Chen's chart.
 **Pre-stage:** Margaret Chen's encounter open in one tab. A terminal in
 the repo root in another tab. LangSmith dashboard
-(https://smith.langchain.com → project `copilot-agent-prod`) in a third.
+(https://smith.langchain.com → project `agent-forge`) in a third.
 
 The script hits every PRD-mandated demo topic in order: **document upload
 → extraction → evidence retrieval → citations → eval results →

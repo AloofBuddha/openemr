@@ -687,6 +687,14 @@ def _build_graph_for_evals():
         raise RuntimeError("ANTHROPIC_API_KEY not set in environment")
     anthropic_client = anthropic.AsyncAnthropic(api_key=api_key)
 
+    # Mirror the sidecar: wrap Anthropic in LangSmith when env is set so eval
+    # runs show full prompt/response/token detail in the dashboard, not just
+    # node-level spans.
+    if os.environ.get("LANGCHAIN_TRACING_V2", "").lower() == "true" \
+            and os.environ.get("LANGCHAIN_API_KEY"):
+        from langsmith.wrappers import wrap_anthropic
+        anthropic_client = wrap_anthropic(anthropic_client)
+
     cohere_client = None
     cohere_key = os.environ.get("COHERE_API_KEY")
     if cohere_key:

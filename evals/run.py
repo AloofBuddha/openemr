@@ -29,6 +29,20 @@ import tool
 
 load_dotenv()
 
+
+def _make_anthropic_client() -> anthropic.Anthropic:
+    """Anthropic client wrapped with LangSmith tracing when env vars are set.
+
+    Mirrors the sidecar's main.py setup so eval runs land in LangSmith
+    with full prompt/response/token detail, not just node-level spans.
+    """
+    client = _make_anthropic_client()
+    if os.environ.get("LANGCHAIN_TRACING_V2", "").lower() == "true" \
+            and os.environ.get("LANGCHAIN_API_KEY"):
+        from langsmith.wrappers import wrap_anthropic
+        client = wrap_anthropic(client)
+    return client
+
 # ---------------------------------------------------------------------------
 # DB connection
 # ---------------------------------------------------------------------------
@@ -60,7 +74,7 @@ def run_brief(inputs: dict[str, Any]) -> dict[str, Any]:
 
     user_message, sources = prompt_mod.build_user_message(patient_data)
 
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = _make_anthropic_client()
     message = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=512,
@@ -99,7 +113,7 @@ def run_followup(inputs: dict[str, Any]) -> dict[str, Any]:
         {"role": "user",      "content": question},
     ]
 
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = _make_anthropic_client()
     message = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=512,
@@ -186,7 +200,7 @@ def _is_brand_generic_alias(suspicious: list[str], known_drugs: set[str]) -> tup
     equivalent of a known drug. Returns (all_equivalent, explanation).
     Falls back to (False, reason) on any error so the parent evaluator degrades gracefully.
     """
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = _make_anthropic_client()
     try:
         message = client.messages.create(
             model="claude-haiku-4-5-20251001",
