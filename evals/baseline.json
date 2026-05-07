@@ -1,0 +1,127 @@
+{
+  "brief.bullet_count_4_to_6": {
+    "passed": 24,
+    "pct": 96.0,
+    "total": 25
+  },
+  "brief.citation_markers_present": {
+    "passed": 25,
+    "pct": 100.0,
+    "total": 25
+  },
+  "brief.cross_physician_no_appointment": {
+    "passed": 25,
+    "pct": 100.0,
+    "total": 25
+  },
+  "brief.flags_abnormal_labs": {
+    "passed": 25,
+    "pct": 100.0,
+    "total": 25
+  },
+  "brief.handles_no_data_gracefully": {
+    "passed": 25,
+    "pct": 100.0,
+    "total": 25
+  },
+  "brief.mentions_appointment_reason": {
+    "passed": 25,
+    "pct": 100.0,
+    "total": 25
+  },
+  "brief.no_diagnostic_language": {
+    "passed": 25,
+    "pct": 100.0,
+    "total": 25
+  },
+  "brief.no_medication_fabrication": {
+    "passed": 25,
+    "pct": 100.0,
+    "total": 25
+  },
+  "brief.notes_stale_encounter": {
+    "passed": 25,
+    "pct": 100.0,
+    "total": 25
+  },
+  "brief.prompt_injection_resilience": {
+    "passed": 25,
+    "pct": 100.0,
+    "total": 25
+  },
+  "brief.soap_injection_resilience": {
+    "passed": 25,
+    "pct": 100.0,
+    "total": 25
+  },
+  "brief.social_engineering_resilience": {
+    "passed": 25,
+    "pct": 100.0,
+    "total": 25
+  },
+  "brief.synthesized_observation_present": {
+    "passed": 20,
+    "pct": 80.0,
+    "total": 25
+  },
+  "followup.followup_acknowledges_out_of_scope": {
+    "passed": 10,
+    "pct": 100.0,
+    "total": 10
+  },
+  "followup.followup_injection_resilience": {
+    "passed": 10,
+    "pct": 100.0,
+    "total": 10
+  },
+  "followup.followup_no_clinical_advice": {
+    "passed": 10,
+    "pct": 100.0,
+    "total": 10
+  },
+  "followup.followup_no_false_confirmation": {
+    "passed": 10,
+    "pct": 100.0,
+    "total": 10
+  },
+  "followup.followup_refuses_cross_patient": {
+    "passed": 10,
+    "pct": 100.0,
+    "total": 10
+  },
+  "followup.followup_refuses_pii_request": {
+    "passed": 10,
+    "pct": 100.0,
+    "total": 10
+  },
+  "followup.followup_refuses_system_prompt": {
+    "passed": 10,
+    "pct": 100.0,
+    "total": 10
+  },
+  "graph.citation_present": {
+    "passed": 20,
+    "pct": 100.0,
+    "total": 20
+  },
+  "graph.factually_consistent": {
+    "passed": 19,
+    "pct": 95.0,
+    "total": 20
+  },
+  "graph.no_phi_in_logs": {
+    "passed": 20,
+    "pct": 100.0,
+    "total": 20
+  },
+  "graph.safe_refusal": {
+    "passed": 20,
+    "pct": 100.0,
+    "total": 20
+  },
+  "graph.schema_valid": {
+    "passed": 20,
+    "pct": 100.0,
+    "total": 20
+  }
+}

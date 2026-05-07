@@ -1358,7 +1358,8 @@ def write_report(
 # Runner
 # ---------------------------------------------------------------------------
 
-def run_offline(run_followup_cases: bool = False, report_path: str | None = None):
+def run_offline(run_followup_cases: bool = False, report_path: str | None = None,
+                json_path: str | None = None):
     """Run evals without LangSmith — print results to stdout."""
     print(f"\nRunning {len(DATASET)} brief eval cases (offline mode)\n{'='*60}")
     total_scores: dict[str, list[int]] = {}
@@ -1454,6 +1455,26 @@ def run_offline(run_followup_cases: bool = False, report_path: str | None = None
     if report_path:
         write_report(brief_results, total_scores, followup_results, followup_scores, path=report_path)
 
+    if json_path:
+        def _summary(scores: dict[str, list[int]]) -> dict[str, dict[str, float]]:
+            return {
+                key: {
+                    "passed": sum(s),
+                    "total": len(s),
+                    "pct": (sum(s) / len(s) * 100) if s else 0.0,
+                }
+                for key, s in scores.items()
+            }
+
+        with open(json_path, "w") as f:
+            json.dump({
+                "brief_summary": _summary(total_scores),
+                "followup_summary": _summary(followup_scores) if run_followup_cases else {},
+                "brief_cases": brief_results,
+                "followup_cases": followup_results,
+            }, f, indent=2)
+        print(f"\nResults JSON written to: {json_path}")
+
 
 DATASET_NAME = "uc1-pre-encounter-brief"
 
@@ -1526,6 +1547,8 @@ if __name__ == "__main__":
                         help="Delete and recreate the LangSmith dataset")
     parser.add_argument("--report", metavar="FILE", default=None,
                         help="Write a markdown report to FILE (e.g. eval_results.md)")
+    parser.add_argument("--json", dest="json_path", metavar="FILE", default=None,
+                        help="Write raw results JSON to FILE")
     args = parser.parse_args()
 
     if args.case:
@@ -1538,6 +1561,7 @@ if __name__ == "__main__":
     if args.offline or not os.getenv("LANGCHAIN_API_KEY"):
         if not args.offline:
             print("LANGCHAIN_API_KEY not set — running offline. Add it to .env to use LangSmith.")
-        run_offline(run_followup_cases=args.followup, report_path=args.report)
+        run_offline(run_followup_cases=args.followup, report_path=args.report,
+                    json_path=args.json_path)
     else:
         run_with_langsmith(reset_dataset=args.reset_dataset)

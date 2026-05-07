@@ -1,0 +1,7 @@
+# Per-run eval artifacts — regenerated every gate run.
+# baseline.json IS committed (it's the gate's reference point).
+brief_gate_results.json
+graph_gate_results.json
+graph_results.json
+graph_results.md
+__pycache__/
