@@ -66,10 +66,13 @@ above it:
 
 Once the answer is rendered, click three citations in turn:
 
-1. **`[[D1]]`** (purple, document) — drawer shows
-   *Page 1: "Hemoglobin A1c 9.2 %"*. Say:
-   > "Verbatim text from the PDF, plus the page reference. Not metadata —
-   > the actual literal evidence."
+1. **`[[D1]]`** (purple, document) — drawer shows the **rendered PDF
+   page with a yellow bounding box drawn over the cited value**, plus
+   the verbatim row underneath (`Page 1: "Hemoglobin A1c 9.2 %"`). Say:
+   > "Yellow rectangle is the literal text the model cited, located by
+   > pdfplumber's word-level coordinates. This is the citation contract
+   > the PRD calls for — every clinical claim grounds back to a visible
+   > region of the source."
 2. **`[[G1]]`** (purple, guideline) — drawer shows the full ACC/AHA
    chunk. Say:
    > "Hybrid retrieval: BM25 sparse + ChromaDB dense (MiniLM-L6) →
@@ -151,13 +154,9 @@ Switch to repo, `cat COST_LATENCY.md`:
 ## 3:30 – 3:45 · Close (15 s)
 
 > "Two doc types, supervisor + two workers, hybrid retrieval with
-> rerank, citation contract on every claim with verbatim quotes, 55-case
+> rerank, citation contract grounded down to PDF bounding boxes, 55-case
 > PR-blocking eval gate, and observability that catches both regressions
 > and PHI leaks."
->
-> "PDF bounding-box overlay is the next thing on my list for final
-> submission — the verbatim quote + page reference covers the substance,
-> the bbox is the polish."
 
 End.
 
