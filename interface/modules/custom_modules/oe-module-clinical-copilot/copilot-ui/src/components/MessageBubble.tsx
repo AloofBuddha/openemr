@@ -119,25 +119,37 @@ export function MessageBubble({
           ))}
         </div>
       )}
-      {!msg.isStreaming && debugMode && msg.routing && msg.routing.length > 0 && (
-        <details className="copilot-routing">
-          <summary>
-            Agent trace · {msg.routing.length} step{msg.routing.length === 1 ? '' : 's'} ·{' '}
-            {msg.routing.reduce((sum, s) => sum + (s.duration_ms ?? 0), 0)}ms
-          </summary>
-          <ol className="copilot-routing-list">
-            {msg.routing.map((step, i) => (
-              <li key={i}>
-                <span className="copilot-routing-node">{step.node}</span>
-                <span className="copilot-routing-ms">{step.duration_ms}ms</span>
-                <code className="copilot-routing-decision">
-                  {JSON.stringify(step.decision)}
-                </code>
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
+      {!msg.isStreaming && debugMode && msg.routing && msg.routing.length > 0 && (() => {
+        const totalMs = msg.routing.reduce((s, x) => s + (x.duration_ms ?? 0), 0);
+        const totalTokIn = msg.routing.reduce((s, x) => s + (x.tokens?.input ?? 0), 0);
+        const totalTokOut = msg.routing.reduce((s, x) => s + (x.tokens?.output ?? 0), 0);
+        const totalCost = msg.routing.reduce((s, x) => s + (x.cost_usd ?? 0), 0);
+        return (
+          <details className="copilot-routing">
+            <summary>
+              Agent trace · {msg.routing.length} step{msg.routing.length === 1 ? '' : 's'} ·{' '}
+              {totalMs}ms · {totalTokIn}→{totalTokOut} tok · ${totalCost.toFixed(4)}
+            </summary>
+            <ol className="copilot-routing-list">
+              {msg.routing.map((step, i) => (
+                <li key={i}>
+                  <span className="copilot-routing-node">{step.node}</span>
+                  <span className="copilot-routing-ms">{step.duration_ms}ms</span>
+                  {(step.tokens || step.cost_usd != null) && (
+                    <span className="copilot-routing-cost">
+                      {step.tokens ? `${step.tokens.input}→${step.tokens.output} tok ` : ''}
+                      {step.cost_usd != null ? `$${step.cost_usd.toFixed(5)}` : ''}
+                    </span>
+                  )}
+                  <code className="copilot-routing-decision">
+                    {JSON.stringify(step.decision)}
+                  </code>
+                </li>
+              ))}
+            </ol>
+          </details>
+        );
+      })()}
     </div>
   );
 }

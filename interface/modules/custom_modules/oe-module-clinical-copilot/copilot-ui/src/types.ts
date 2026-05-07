@@ -84,6 +84,9 @@ export interface RoutingStep {
   node: string;
   decision: Record<string, unknown>;
   duration_ms: number;
+  tokens?: { input: number; output: number };
+  cost_usd?: number;
+  model?: string;
 }
 
 export interface Message {

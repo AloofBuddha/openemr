@@ -48,6 +48,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     anthropic_client = anthropic.AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
+    # LangSmith integration: when LANGCHAIN_TRACING_V2=true and a key is set,
+    # wrap the Anthropic client so every messages.create call shows up in
+    # the LangSmith dashboard with full prompts, responses, token usage,
+    # and a cost estimate. LangGraph nodes are auto-traced separately, so
+    # the wrapped LLM calls nest cleanly inside the supervisor / answer
+    # assembler node spans. No-op when the env vars aren't set.
+    if os.environ.get("LANGCHAIN_TRACING_V2", "").lower() == "true" \
+            and os.environ.get("LANGCHAIN_API_KEY"):
+        from langsmith.wrappers import wrap_anthropic
+        anthropic_client = wrap_anthropic(anthropic_client)
+        logger.info(
+            "LangSmith tracing enabled (project=%s)",
+            os.environ.get("LANGCHAIN_PROJECT", "default"),
+        )
+    else:
+        logger.info("LangSmith tracing disabled (set LANGCHAIN_API_KEY + LANGCHAIN_TRACING_V2=true)")
+
     cohere_key = os.environ.get("COHERE_API_KEY")
     if cohere_key:
         import cohere
@@ -222,9 +239,9 @@ def _scrub_routing_log(routing_log: list[dict]) -> list[dict]:
 
     Haiku's reasoning string occasionally includes a paraphrase of the
     physician's query, which can carry PHI through to the UI. Keep the
-    machine-readable parts (intent, next_workers, durations, counts) — drop
-    the free-text. The structured intent + next_workers list is sufficient
-    to render an audit trace.
+    machine-readable parts (intent, next_workers, durations, counts,
+    tokens, cost) — drop the free-text. The structured intent +
+    next_workers list is sufficient to render an audit trace.
     """
     scrubbed: list[dict] = []
     for step in routing_log:
@@ -234,6 +251,9 @@ def _scrub_routing_log(routing_log: list[dict]) -> list[dict]:
             "node": step.get("node"),
             "decision": decision,
             "duration_ms": step.get("duration_ms"),
+            "tokens": step.get("tokens"),
+            "cost_usd": step.get("cost_usd"),
+            "model": step.get("model"),
         })
     return scrubbed
 

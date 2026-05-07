@@ -45,6 +45,19 @@ class SupervisorDecision(BaseModel):
     next_workers: list[str]
 
 
+# Per-million-token prices (USD). Update if Anthropic pricing changes.
+# Source: https://www.anthropic.com/pricing — current as of model release.
+_PRICING = {
+    "claude-haiku-4-5-20251001": (1.00, 5.00),
+    "claude-sonnet-4-6":         (3.00, 15.00),
+}
+
+
+def _estimate_cost(model: str, in_tok: int, out_tok: int) -> float:
+    in_per_m, out_per_m = _PRICING.get(model, (0.0, 0.0))
+    return round(in_tok * in_per_m / 1_000_000 + out_tok * out_per_m / 1_000_000, 6)
+
+
 _SUPERVISOR_PROMPT = """\
 You are a clinical co-pilot routing agent. Given the query and the current state, classify the intent and decide which workers to call next.
 
@@ -84,7 +97,14 @@ Rules:
 async def make_supervisor_decision(
     state: AgentState,
     anthropic_client: anthropic.AsyncAnthropic,
-) -> SupervisorDecision:
+) -> tuple[SupervisorDecision, dict]:
+    """Return (decision, telemetry) where telemetry has tokens + cost.
+
+    The caller (supervisor_node) folds the telemetry into routing_log so
+    every encounter has tool sequence + per-step latency + token usage +
+    cost estimate — the per-PRD section-7 observability requirement —
+    available locally even when LangSmith is off.
+    """
     prompt = _SUPERVISOR_PROMPT.format(
         query=state["query"],
         doc_ids=state.get("doc_ids", []),
@@ -94,6 +114,7 @@ async def make_supervisor_decision(
     )
 
     t0 = time.monotonic()
+    telemetry: dict = {"model": _HAIKU, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
     try:
         message = await anthropic_client.messages.create(
             model=_HAIKU,
@@ -102,6 +123,15 @@ async def make_supervisor_decision(
         )
         raw = message.content[0].text  # type: ignore[union-attr]
         duration_ms = int((time.monotonic() - t0) * 1000)
+
+        in_tok = getattr(message.usage, "input_tokens", 0) or 0
+        out_tok = getattr(message.usage, "output_tokens", 0) or 0
+        telemetry = {
+            "model": _HAIKU,
+            "input_tokens": in_tok,
+            "output_tokens": out_tok,
+            "cost_usd": _estimate_cost(_HAIKU, in_tok, out_tok),
+        }
 
         # Strip markdown fences
         text = raw.strip()
@@ -113,19 +143,22 @@ async def make_supervisor_decision(
         data = json.loads(text.strip())
         decision = SupervisorDecision(**data)
         logger.info(
-            "Supervisor decision (iter=%d, %dms): intent=%s next=%s reason=%s",
+            "Supervisor decision (iter=%d, %dms, %d→%d tok, $%s): intent=%s next=%s",
             state.get("iteration", 0),
             duration_ms,
+            in_tok, out_tok, telemetry["cost_usd"],
             decision.intent,
             decision.next_workers,
-            decision.reasoning,
         )
-        return decision
+        return decision, telemetry
 
     except Exception:
         logger.exception("Supervisor Claude call failed; defaulting to answer_assembler")
-        return SupervisorDecision(
-            intent=["can_answer"],
-            reasoning="Supervisor call failed — routing directly to answer assembler",
-            next_workers=["answer_assembler"],
+        return (
+            SupervisorDecision(
+                intent=["can_answer"],
+                reasoning="Supervisor call failed — routing directly to answer assembler",
+                next_workers=["answer_assembler"],
+            ),
+            telemetry,
         )

@@ -25,6 +25,7 @@ from agent.prompt_helpers import format_guideline_sources, summarise_extracted_d
 from agent.supervisor import (
     AgentState,
     SupervisorDecision,
+    _estimate_cost,
     make_supervisor_decision,
 )
 from rag.indexer import GuidelineChunk
@@ -155,6 +156,7 @@ def route_from_supervisor(state: AgentState) -> str:
 async def supervisor_node(state: AgentState, deps: GraphDeps) -> dict:
     t0 = time.monotonic()
     iteration = state.get("iteration", 0)
+    telemetry: dict = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "model": SONNET}
 
     if iteration >= MAX_ITERATIONS:
         logger.warning("Max iterations reached; forcing answer_assembler")
@@ -164,7 +166,7 @@ async def supervisor_node(state: AgentState, deps: GraphDeps) -> dict:
             next_workers=["answer_assembler"],
         )
     else:
-        decision = await make_supervisor_decision(state, deps.anthropic_client)
+        decision, telemetry = await make_supervisor_decision(state, deps.anthropic_client)
 
     routing_log = list(state.get("routing_log", []))
     routing_log.append({
@@ -175,6 +177,12 @@ async def supervisor_node(state: AgentState, deps: GraphDeps) -> dict:
             "reasoning": decision.reasoning,
         },
         "duration_ms": int((time.monotonic() - t0) * 1000),
+        "tokens": {
+            "input": telemetry["input_tokens"],
+            "output": telemetry["output_tokens"],
+        },
+        "cost_usd": telemetry["cost_usd"],
+        "model": telemetry["model"],
     })
 
     return {
@@ -245,6 +253,8 @@ async def evidence_retriever_node(state: AgentState, deps: GraphDeps) -> dict:
         "node": "evidence_retriever",
         "decision": {"chunks_retrieved": len(chunks)},
         "duration_ms": int((time.monotonic() - t0) * 1000),
+        "tokens": {"input": 0, "output": 0},
+        "cost_usd": 0.0,
     })
 
     return {
@@ -270,6 +280,7 @@ async def answer_assembler_node(state: AgentState, deps: GraphDeps) -> dict:
         guideline_sources=format_guideline_sources(guideline_chunks) or "No guideline evidence retrieved.",
     )
 
+    in_tok = out_tok = 0
     try:
         message = await deps.anthropic_client.messages.create(
             model=SONNET,
@@ -277,6 +288,8 @@ async def answer_assembler_node(state: AgentState, deps: GraphDeps) -> dict:
             messages=[{"role": "user", "content": prompt}],
         )
         answer = message.content[0].text  # type: ignore[union-attr]
+        in_tok = getattr(message.usage, "input_tokens", 0) or 0
+        out_tok = getattr(message.usage, "output_tokens", 0) or 0
     except Exception:
         logger.exception("Answer assembler Claude call failed")
         answer = (
@@ -296,6 +309,9 @@ async def answer_assembler_node(state: AgentState, deps: GraphDeps) -> dict:
         "node": "answer_assembler",
         "decision": {"answer_length": len(answer)},
         "duration_ms": int((time.monotonic() - t0) * 1000),
+        "tokens": {"input": in_tok, "output": out_tok},
+        "cost_usd": _estimate_cost(SONNET, in_tok, out_tok),
+        "model": SONNET,
     })
 
     patient_context = state.get("patient_context", "")
