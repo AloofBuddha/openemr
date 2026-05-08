@@ -1,3 +1,13 @@
 198.211.103.246.nip.io {
+    # Static assets — OpenEMR's Apache returns no Cache-Control, so browsers
+    # refetch a 1.5 MB style_light.css on every page navigation. Add a 1-day
+    # public cache so static URLs go through the browser cache. If a CSS/JS
+    # file changes, hard-refresh (Cmd-Shift-R) or wait out the TTL — the
+    # copilot bundle uses ?v=<mtime> for instant cache busting on its own.
+    @static {
+        path *.css *.js *.png *.jpg *.jpeg *.gif *.svg *.ico *.woff *.woff2 *.ttf *.eot *.map
+    }
+    header @static Cache-Control "public, max-age=86400"
+
     reverse_proxy openemr:80
 }
