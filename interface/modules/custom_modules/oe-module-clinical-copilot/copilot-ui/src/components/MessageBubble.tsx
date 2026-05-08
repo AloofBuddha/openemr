@@ -98,16 +98,26 @@ export function MessageBubble({
   }
 
   const html = renderContent(msg.content, !!msg.isStreaming, sources, debugMode);
-  const showStatus = msg.isStreaming && !msg.content && statusMessage;
+  const trace = msg.statusTrace ?? [];
 
   return (
     <div className="copilot-message-assistant">
-      {showStatus ? (
-        <div className="copilot-status-message">
-          <span className="copilot-status-dot" />
-          {statusMessage}
-        </div>
-      ) : (
+      {/* Persistent agent-progress trace. Stays visible after the answer
+          arrives so the user can see what work led to the result. */}
+      {trace.length > 0 && (
+        <ul className="copilot-status-trace">
+          {trace.map((s, i) => (
+            <li key={i} className={`copilot-status-trace-step${s.running ? ' running' : ''}`}>
+              <span className="copilot-status-dot" />
+              <span className="copilot-status-trace-text">{s.text}</span>
+              <span className="copilot-status-trace-ms">
+                {s.running ? '…' : `${(s.ms / 1000).toFixed(1)}s`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {(msg.content || !msg.isStreaming) && (
         <>
           {!msg.isStreaming && msg.provenance && (
             <div className="copilot-provenance" title="What the agent looked at to answer this">

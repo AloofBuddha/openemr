@@ -28,15 +28,18 @@ interface Props {
 }
 
 // Pick the result whose value (or quote, or label) best matches the phrase
-// the user clicked. This is what makes the bbox feel like proof: when you
-// click [[D1]]232 mg/dL[[/D1]], the yellow rect lands on "232 mg/dL"
-// specifically — not on whatever happens to be the first extracted item.
+// the user clicked. The matcher considers ALL results — bbox or not — in
+// the strict/token/label phases so a free-text field like "Chief concern:
+// mild chest tightness" can match even though it lacks a bbox. Only the
+// last-resort fallback requires a bbox, since "show me anything I can
+// highlight" is more useful than "show me nothing."
 //
 // Order of preference:
-//   1. value contains the cited number/word (covers "232 mg/dL" → "232")
+//   1. value contains the cited phrase (covers "232 mg/dL" → "232")
 //   2. quote substring match
-//   3. label match (e.g. "Hemoglobin A1c")
-//   4. first result with a bbox (graceful fallback for top-level [[D1]] clicks)
+//   3. token-level: any cited word appears in the value or quote
+//   4. label match (e.g. user clicked "Hemoglobin A1c" with no number)
+//   5. first result with a bbox (graceful fallback for top-level clicks)
 function _matchResult(
   results: ExtractedResult[] | undefined,
   citedText: string,
@@ -45,23 +48,23 @@ function _matchResult(
   const phrase = citedText.trim().toLowerCase();
   if (phrase) {
     const norm = (s: string | null | undefined) => (s ?? '').toLowerCase();
-    const tokens = phrase.split(/\s+/).filter(t => t.length >= 2);
+    const tokens = phrase.split(/\s+/).filter(t => t.length >= 3);
 
-    // Strict match: cited phrase appears in the result value or quote.
+    // 1: full-phrase substring match in value or quote.
     for (const r of results) {
-      if (r.bbox && (norm(r.value).includes(phrase) || norm(r.quote).includes(phrase))) {
+      if (norm(r.value).includes(phrase) || norm(r.quote).includes(phrase)) {
         return r;
       }
     }
-    // Token-level: at least one substantive cited word is in the value.
+    // 2: token match — at least one substantive cited word.
     for (const r of results) {
-      if (r.bbox && tokens.some(t => norm(r.value).includes(t) || norm(r.quote).includes(t))) {
+      if (tokens.some(t => norm(r.value).includes(t) || norm(r.quote).includes(t))) {
         return r;
       }
     }
-    // Label match: e.g. user clicked "Hemoglobin A1c" with no number.
+    // 3: label match — user clicked the field name itself.
     for (const r of results) {
-      if (r.bbox && norm(r.label).includes(phrase)) return r;
+      if (norm(r.label).includes(phrase)) return r;
     }
   }
   return results.find(r => r.bbox) ?? null;
@@ -136,43 +139,59 @@ export function SourceDrawer({
         <button className="copilot-drawer-close" onClick={onClose} title="Close"><X size={14} /></button>
       </div>
       <div className="copilot-drawer-body">
-        {/* DB info first — what the chart actually says, in plain text. */}
-        {source.extracted_results && source.extracted_results.length > 0 ? (
-          <>
-            <p className="copilot-drawer-section-label">Extracted from this document</p>
-            <ul className="copilot-drawer-quotes">
-              {source.extracted_results.map((r, i) => (
-                <li key={i} className="copilot-drawer-quote-item">
-                  <div className="copilot-drawer-quote-row">
-                    <span className="copilot-drawer-quote-label">{r.label}</span>
-                    {r.value && <span className="copilot-drawer-quote-value">{r.value}</span>}
-                    {r.abnormal && r.abnormal !== 'N' && (
-                      <span className="copilot-drawer-quote-flag">{r.abnormal}</span>
+        {/* DB info first — what the chart actually says, in plain text.
+            When we can match the cited phrase to one specific extracted
+            field, we show only that field. Otherwise (top-level [[DN]]
+            click that names the document itself, or no good match) we
+            fall back to the full extraction list as a doc-level overview. */}
+        {(() => {
+          const all = source.extracted_results;
+          if (!all || all.length === 0) return null;
+          const featuredItem = _matchResult(all, citedText);
+          const items = featuredItem ? [featuredItem] : all;
+          const label = featuredItem
+            ? 'Cited from this document'
+            : 'Extracted from this document';
+          return (
+            <>
+              <p className="copilot-drawer-section-label">{label}</p>
+              <ul className="copilot-drawer-quotes">
+                {items.map((r, i) => (
+                  <li key={i} className="copilot-drawer-quote-item">
+                    <div className="copilot-drawer-quote-row">
+                      <span className="copilot-drawer-quote-label">{r.label}</span>
+                      {r.value && <span className="copilot-drawer-quote-value">{r.value}</span>}
+                      {r.abnormal && r.abnormal !== 'N' && (
+                        <span className="copilot-drawer-quote-flag">{r.abnormal}</span>
+                      )}
+                      {r.page && <span className="copilot-drawer-quote-page">{r.page}</span>}
+                    </div>
+                    {r.quote && (
+                      <blockquote className="copilot-drawer-quote-text">
+                        &ldquo;{r.quote}&rdquo;
+                      </blockquote>
                     )}
-                    {r.page && <span className="copilot-drawer-quote-page">{r.page}</span>}
-                  </div>
-                  {r.quote && (
-                    <blockquote className="copilot-drawer-quote-text">
-                      &ldquo;{r.quote}&rdquo;
-                    </blockquote>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : source.fields?.length > 0 ? (
-          <table className="copilot-drawer-table">
-            <tbody>
-              {source.fields.map((f, i) => (
-                <tr key={i}>
-                  <td className="copilot-drawer-key">{f.key}</td>
-                  <td className="copilot-drawer-val">{f.value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p className="copilot-drawer-empty">No record details available.</p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          );
+        })()}
+        {!(source.extracted_results && source.extracted_results.length > 0) && (
+          source.fields?.length > 0 ? (
+            <table className="copilot-drawer-table">
+              <tbody>
+                {source.fields.map((f, i) => (
+                  <tr key={i}>
+                    <td className="copilot-drawer-key">{f.key}</td>
+                    <td className="copilot-drawer-val">{f.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="copilot-drawer-empty">No record details available.</p>
+          )
         )}
 
         {/* Cropped PDF region with the cited area highlighted. The sidecar

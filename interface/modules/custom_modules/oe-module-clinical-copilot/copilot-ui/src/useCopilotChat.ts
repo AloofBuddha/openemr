@@ -337,9 +337,33 @@ export function useCopilotChat(
     setInlineError: (retryText: string) => void,
   ): void => {
     switch (event) {
-      case 'status':
-        setStatusMessage((data.text as string) ?? '');
+      case 'status': {
+        const text = (data.text as string) ?? '';
+        if (!text) break;
+        setStatusMessage(text);
+        // Append to the assistant message's status trace so we keep a
+        // visible record of what the agent did (and how long each step
+        // took) even after the final answer arrives.
+        setMessages(prev => prev.map(m => {
+          if (m.id !== assistantId) return m;
+          const now = Date.now();
+          const trace = m.statusTrace ?? [];
+          const stepStart = m.statusStepStartedAt ?? now;
+          // Close out the previous still-running step with its duration.
+          const closedTrace = trace.length > 0
+            ? [
+                ...trace.slice(0, -1),
+                { ...trace[trace.length - 1], ms: now - stepStart, running: false },
+              ]
+            : trace;
+          return {
+            ...m,
+            statusTrace: [...closedTrace, { text, ms: 0, running: true }],
+            statusStepStartedAt: now,
+          };
+        }));
         break;
+      }
       case 'snapshot': {
         // Preserve vitals from intake form if W1 brief doesn't include them.
         const incoming = data as unknown as Snapshot;
@@ -396,9 +420,21 @@ export function useCopilotChat(
       }
       case 'done':
         setStatusMessage('');
-        setMessages(prev => prev.map(m =>
-          m.id === assistantId ? { ...m, isStreaming: false } : m
-        ));
+        // Close out the final status step with its duration so the trace
+        // shows accurate timing for every step.
+        setMessages(prev => prev.map(m => {
+          if (m.id !== assistantId) return m;
+          const now = Date.now();
+          const trace = m.statusTrace ?? [];
+          const stepStart = m.statusStepStartedAt ?? now;
+          const closedTrace = trace.length > 0
+            ? [
+                ...trace.slice(0, -1),
+                { ...trace[trace.length - 1], ms: now - stepStart, running: false },
+              ]
+            : trace;
+          return { ...m, isStreaming: false, statusTrace: closedTrace };
+        }));
         setNeedsSave(true);
         setStatus(wasCachedRef.current ? 'cached' : 'live');
         // After a lab upload, the OpenEMR procedure tables were updated
