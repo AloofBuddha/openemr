@@ -90,12 +90,14 @@ function _pageImageUrl(
 }
 
 // OpenEMR document download URL — opens the full PDF in a new tab.
+// openemrRoot is "" when OpenEMR is mounted at the domain root, so we check
+// undefined explicitly rather than truthiness — empty string is valid.
 function _fullDocUrl(
   openemrRoot: string | undefined,
   pid: number | undefined,
   docId: number,
 ): string | null {
-  if (!openemrRoot || !pid) return null;
+  if (openemrRoot === undefined || !pid) return null;
   return `${openemrRoot}/controller.php?document&retrieve&patient_id=${pid}&document_id=${docId}&as_file=false`;
 }
 
