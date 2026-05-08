@@ -27,46 +27,54 @@ interface Props {
   citedText?: string;     // exact phrase the user clicked, used to target the right bbox
 }
 
-// Pick the result whose value (or quote, or label) best matches the phrase
-// the user clicked. The matcher considers ALL results — bbox or not — in
-// the strict/token/label phases so a free-text field like "Chief concern:
-// mild chest tightness" can match even though it lacks a bbox. Only the
-// last-resort fallback requires a bbox, since "show me anything I can
-// highlight" is more useful than "show me nothing."
+// Score every extracted result against the cited phrase and return the
+// highest-scoring one. A first-match-wins approach was wrong for lab
+// panels: clicking "Triglycerides: 178 mg/dL" matched on the token
+// "mg/dl" against the FIRST result (Total Cholesterol), since every lab
+// value contains "mg/dL". Scoring lets the more-specific token "178"
+// beat the noise so Triglycerides wins.
 //
-// Order of preference:
-//   1. value contains the cited phrase (covers "232 mg/dL" → "232")
-//   2. quote substring match
-//   3. token-level: any cited word appears in the value or quote
-//   4. label match (e.g. user clicked "Hemoglobin A1c" with no number)
-//   5. first result with a bbox (graceful fallback for top-level clicks)
+// Scoring (per result):
+//   +100  full phrase appears in value or quote
+//   +20   per cited token in value or quote
+//   +10   per cited token in label (label match counts but less)
+//   +5    bonus for any result with a bbox (so we prefer something we
+//         can highlight when scores are otherwise tied)
+//
+// Tokens are length-3+ and stripped of leading/trailing punctuation
+// ("Triglycerides:" → "Triglycerides").
 function _matchResult(
   results: ExtractedResult[] | undefined,
   citedText: string,
 ): ExtractedResult | null {
   if (!results || results.length === 0) return null;
   const phrase = citedText.trim().toLowerCase();
-  if (phrase) {
-    const norm = (s: string | null | undefined) => (s ?? '').toLowerCase();
-    const tokens = phrase.split(/\s+/).filter(t => t.length >= 3);
+  if (!phrase) return results.find(r => r.bbox) ?? null;
 
-    // 1: full-phrase substring match in value or quote.
-    for (const r of results) {
-      if (norm(r.value).includes(phrase) || norm(r.quote).includes(phrase)) {
-        return r;
-      }
+  const norm = (s: string | null | undefined) => (s ?? '').toLowerCase();
+  const tokens = phrase.split(/\s+/)
+    .map(t => t.replace(/^[^\w]+|[^\w/%]+$/g, ''))
+    .filter(t => t.length >= 3);
+
+  let best: ExtractedResult | null = null;
+  let bestScore = 0;
+  for (const r of results) {
+    const v = norm(r.value);
+    const q = norm(r.quote);
+    const l = norm(r.label);
+    let score = 0;
+    if (v.includes(phrase) || q.includes(phrase)) score += 100;
+    for (const t of tokens) {
+      if (v.includes(t) || q.includes(t)) score += 20;
+      if (l.includes(t)) score += 10;
     }
-    // 2: token match — at least one substantive cited word.
-    for (const r of results) {
-      if (tokens.some(t => norm(r.value).includes(t) || norm(r.quote).includes(t))) {
-        return r;
-      }
-    }
-    // 3: label match — user clicked the field name itself.
-    for (const r of results) {
-      if (norm(r.label).includes(phrase)) return r;
+    if (r.bbox && score > 0) score += 5;
+    if (score > bestScore) {
+      best = r;
+      bestScore = score;
     }
   }
+  if (best) return best;
   return results.find(r => r.bbox) ?? null;
 }
 
@@ -107,7 +115,16 @@ function _fullDocUrl(
 export function SourceDrawer({
   source, onClose, width, webRoot, openemrRoot, pid, docId, citedText = '',
 }: Props) {
-  const typeLabel = TYPE_LABELS[source.type] ?? source.type;
+  // When we have a specific match for the cited text inside the document's
+  // extracted fields, the chip should describe THAT field (Lab Result,
+  // Medication, Allergy) — not the parent document. Clicking
+  // "Triglycerides: 178 mg/dL" should show "Lab Result", not "Document".
+  const featuredItem = _matchResult(source.extracted_results, citedText);
+  const effectiveType = featuredItem?.kind ?? source.type;
+  const typeLabel = TYPE_LABELS[effectiveType] ?? effectiveType;
+  const headerLabel = featuredItem
+    ? (featuredItem.label.replace(/^[A-Za-z ]+:\s*/, '') || source.label)
+    : source.label;
 
   // OpenEMR uses jQuery + Bootstrap collapse for its expandable cards.
   // If the section we're scrolling into is currently collapsed, expand it
@@ -133,8 +150,8 @@ export function SourceDrawer({
     <div className="copilot-drawer" style={{ width }}>
       <div className="copilot-drawer-header">
         <div>
-          <span className={`copilot-drawer-type copilot-drawer-type-${source.type}`}>{typeLabel}</span>
-          <span className="copilot-drawer-label">{source.label}</span>
+          <span className={`copilot-drawer-type copilot-drawer-type-${effectiveType}`}>{typeLabel}</span>
+          <span className="copilot-drawer-label">{headerLabel}</span>
         </div>
         <button className="copilot-drawer-close" onClick={onClose} title="Close"><X size={14} /></button>
       </div>
@@ -144,11 +161,8 @@ export function SourceDrawer({
             field, we show only that field. Otherwise (top-level [[DN]]
             click that names the document itself, or no good match) we
             fall back to the full extraction list as a doc-level overview. */}
-        {(() => {
-          const all = source.extracted_results;
-          if (!all || all.length === 0) return null;
-          const featuredItem = _matchResult(all, citedText);
-          const items = featuredItem ? [featuredItem] : all;
+        {source.extracted_results && source.extracted_results.length > 0 && (() => {
+          const items = featuredItem ? [featuredItem] : source.extracted_results;
           const label = featuredItem
             ? 'Cited from this document'
             : 'Extracted from this document';
@@ -201,14 +215,13 @@ export function SourceDrawer({
             don't have bbox/page for the inline crop, knowing the doc id
             is enough to let the doctor pop the original. */}
         {(() => {
-          const featured = _matchResult(source.extracted_results, citedText);
           const linkBbox = source.source_link?.bbox ?? null;
           const linkDocId = source.source_link?.doc_id;
 
-          const bbox: BBox | null = featured?.bbox ?? linkBbox ?? null;
-          const activeDocId = featured?.bbox ? docId : (linkDocId ?? docId);
-          const label = featured?.label ?? source.label;
-          const value = featured?.value ?? '';
+          const bbox: BBox | null = featuredItem?.bbox ?? linkBbox ?? null;
+          const activeDocId = featuredItem?.bbox ? docId : (linkDocId ?? docId);
+          const label = featuredItem?.label ?? source.label;
+          const value = featuredItem?.value ?? '';
           const pageNum = bbox?.page ?? source.source_link?.page ?? null;
 
           const fullPdfUrl = source.doc_url

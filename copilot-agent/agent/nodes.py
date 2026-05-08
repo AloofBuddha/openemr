@@ -398,7 +398,12 @@ _EXTRACTED_RESULTS_LIMIT = 6  # cap how many provenance entries we ship per doc
 
 
 def _doc_extracted_results(doc: dict[str, Any]) -> list[dict[str, Any]]:
-    """Compact list of {label, value, page, quote, abnormal} per extracted item.
+    """Compact list of {kind, label, value, page, quote, abnormal, bbox}
+    per extracted item.
+
+    Each item carries a ``kind`` (lab/medication/allergy/problem) so the
+    drawer can label the chip semantically — clicking a triglycerides
+    citation should say "Lab Result", not generic "Document".
 
     Carries the literal text the extractor pulled from the PDF (via
     ``SourceCitation.quote_or_value``) plus the page reference, so the UI
@@ -412,6 +417,7 @@ def _doc_extracted_results(doc: dict[str, Any]) -> list[dict[str, Any]]:
         for r in (doc.get("results") or [])[:_EXTRACTED_RESULTS_LIMIT]:
             sc = r.get("source_citation") or {}
             out.append({
+                "kind": "lab",
                 "label": r.get("test_name") or "Result",
                 "value": f"{r.get('value', '')} {r.get('unit') or ''}".strip(),
                 "abnormal": r.get("abnormal_flag"),
@@ -425,27 +431,33 @@ def _doc_extracted_results(doc: dict[str, Any]) -> list[dict[str, Any]]:
         for m in (doc.get("current_medications") or [])[:_EXTRACTED_RESULTS_LIMIT]:
             sc = m.get("source_citation") or {}
             out.append({
+                "kind": "medication",
                 "label": f"Medication: {m.get('name') or '?'}",
                 "value": f"{m.get('dose') or ''} {m.get('frequency') or ''}".strip(),
                 "page": sc.get("page_or_section") or "",
                 "quote": sc.get("quote_or_value") or "",
+                "bbox": sc.get("bbox"),
             })
         for a in (doc.get("allergies") or [])[:_EXTRACTED_RESULTS_LIMIT]:
             sc = a.get("source_citation") or {}
             out.append({
+                "kind": "allergy",
                 "label": f"Allergy: {a.get('allergen') or '?'}",
                 "value": a.get("reaction") or "",
                 "page": sc.get("page_or_section") or "",
                 "quote": sc.get("quote_or_value") or "",
+                "bbox": sc.get("bbox"),
             })
         chief = doc.get("chief_concern")
         if chief:
             sc = (doc.get("source_citation") or {})
             out.append({
+                "kind": "problem",
                 "label": "Chief concern",
                 "value": chief,
                 "page": sc.get("page_or_section") or "",
                 "quote": sc.get("quote_or_value") or chief,
+                "bbox": sc.get("bbox"),
             })
         return out
 

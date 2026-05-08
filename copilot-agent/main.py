@@ -222,13 +222,12 @@ async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
         }
 
         # Status text walks alongside the supervisor's decisions. The
-        # supervisor decides which worker runs next, and we emit a status
-        # message reflecting that worker — so a query asking for guidelines
-        # transitions through "Searching clinical guidelines..." even if a
-        # document was also uploaded, and a query that processes both an
-        # intake form and the guideline corpus shows two distinct phases.
-        # Without this, the user stares at "Analyzing document..." for the
-        # entire run even when most of the time is spent in RAG.
+        # supervisor's LLM may keep proposing a worker whose work is
+        # already done (e.g. proposes intake_extractor on every iteration
+        # even after extraction completed), so we mirror the same skip
+        # logic route_from_supervisor uses to pick the *actual* next
+        # worker — and dedupe consecutive identical statuses so the trace
+        # doesn't repeat "Reviewing patient documents..." three times.
         yield event("status", {"text": "Routing query..."})
 
         worker_status = {
@@ -236,16 +235,31 @@ async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
             "evidence_retriever": "Searching clinical guidelines...",
             "answer_assembler":   "Drafting answer...",
         }
-
+        last_emitted = "Routing query..."
         result: dict = {}
         async for snapshot in state.graph.astream(initial_state, stream_mode="values"):
             result = snapshot
             decision = snapshot.get("_supervisor_decision") or {}
             workers = decision.get("next_workers") or []
+
+            extracted_docs = snapshot.get("extracted_docs") or []
+            doc_ids        = snapshot.get("doc_ids") or []
+            guideline_chunks = snapshot.get("guideline_chunks") or []
+            extraction_done = len(extracted_docs) >= len(doc_ids)
+            retrieval_done  = len(guideline_chunks) > 0
+
             for worker in workers:
-                if worker in worker_status:
-                    yield event("status", {"text": worker_status[worker]})
-                    break
+                if worker == "intake_extractor" and extraction_done:
+                    continue
+                if worker == "evidence_retriever" and retrieval_done:
+                    continue
+                if worker not in worker_status:
+                    continue
+                text = worker_status[worker]
+                if text != last_emitted:
+                    yield event("status", {"text": text})
+                    last_emitted = text
+                break
 
         answer = result.get("answer") or "I was unable to generate an answer."
         citations = result.get("citations", [])
@@ -355,7 +369,7 @@ def _crop_with_highlight(
     png_path: Path,
     x0_pdf: float, y0_pdf: float, x1_pdf: float, y1_pdf: float,
     page_w_pdf: float, page_h_pdf: float,
-    padding_pct: float = 0.04,
+    padding_pct: float = 0.08,
 ) -> bytes:
     """Crop a region of the cached page PNG around the given PDF bbox and
     draw a yellow rectangle on the cited area. Returns PNG bytes.
@@ -383,10 +397,12 @@ def _crop_with_highlight(
     px_y0 = (page_h_pdf - y1_pdf) * sy
     px_y1 = (page_h_pdf - y0_pdf) * sy
 
-    # Padding: at least 60 px or padding_pct of the larger image dimension.
-    pad = max(60.0, max(img_w, img_h) * padding_pct)
+    # Padding: at least 110 px or padding_pct of the larger image dimension.
+    # Erring large keeps the highlight from kissing the cited text — it should
+    # frame the row with breathing room, not feel like a tight cut.
+    pad = max(110.0, max(img_w, img_h) * padding_pct)
     crop_x0 = max(0.0, px_x0 - pad)
-    crop_y0 = max(0.0, px_y0 - pad * 1.5)  # extra room above for context
+    crop_y0 = max(0.0, px_y0 - pad)
     crop_x1 = min(float(img_w), px_x1 + pad)
     crop_y1 = min(float(img_h), px_y1 + pad)
 

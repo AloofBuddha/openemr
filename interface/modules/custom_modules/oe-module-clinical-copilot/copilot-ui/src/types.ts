@@ -15,6 +15,7 @@ export interface BBox {
 }
 
 export interface ExtractedResult {
+  kind?: string;          // 'lab' | 'medication' | 'allergy' | 'problem' — drives drawer chip
   label: string;          // e.g. "Hemoglobin A1c", "Allergy: Penicillin"
   value: string;          // e.g. "9.2 %", "anaphylaxis"
   abnormal?: string | null; // 'H' | 'L' | 'C' | 'N' for labs
