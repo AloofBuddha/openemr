@@ -221,22 +221,32 @@ async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
             "iteration": 0,
         }
 
-        # Status text reflects what the agent is most likely doing on this
-        # turn. We don't know yet what the supervisor will route to, so we
-        # use the same keyword heuristic the chip enforcement uses:
-        #   - doc upload → "Analyzing document..."
-        #   - explicit guideline keywords → "Searching clinical guidelines..."
-        #   - else → "Reviewing patient context..."
-        from agent.supervisor import query_wants_guidelines
-        if all_doc_ids:
-            status_text = "Analyzing document..."
-        elif query_wants_guidelines(req.query):
-            status_text = "Searching clinical guidelines..."
-        else:
-            status_text = "Reviewing patient context..."
-        yield event("status", {"text": status_text})
+        # Status text walks alongside the supervisor's decisions. The
+        # supervisor decides which worker runs next, and we emit a status
+        # message reflecting that worker — so a query asking for guidelines
+        # transitions through "Searching clinical guidelines..." even if a
+        # document was also uploaded, and a query that processes both an
+        # intake form and the guideline corpus shows two distinct phases.
+        # Without this, the user stares at "Analyzing document..." for the
+        # entire run even when most of the time is spent in RAG.
+        yield event("status", {"text": "Routing query..."})
 
-        result = await state.graph.ainvoke(initial_state)
+        worker_status = {
+            "intake_extractor":   "Reviewing patient documents...",
+            "evidence_retriever": "Searching clinical guidelines...",
+            "answer_assembler":   "Drafting answer...",
+        }
+
+        result: dict = {}
+        async for snapshot in state.graph.astream(initial_state, stream_mode="values"):
+            result = snapshot
+            decision = snapshot.get("_supervisor_decision") or {}
+            workers = decision.get("next_workers") or []
+            for worker in workers:
+                if worker in worker_status:
+                    yield event("status", {"text": worker_status[worker]})
+                    break
+
         answer = result.get("answer") or "I was unable to generate an answer."
         citations = result.get("citations", [])
         suggestions = result.get("suggestions", [])
