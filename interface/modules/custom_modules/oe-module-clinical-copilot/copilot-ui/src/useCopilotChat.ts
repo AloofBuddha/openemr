@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { parseSseStream } from './sse';
 import type {
+  CachedConvo,
   CiteSource,
   ExtractionSummary,
   Message,
@@ -191,26 +192,15 @@ export function useCopilotChat(
     [apiUrl],
   );
 
-  // Initial state hydrated from localStorage so a refresh keeps the brief.
-  // Drop the cache when its snapshot is empty — that means the brief was
-  // generated before the patient's chart had any data (e.g. before today's
-  // intake form was processed). Reusing it would tell the doctor "no
-  // patient info" while the OpenEMR card view shows real medications.
-  const initialCache = useMemo(() => {
-    const cached = loadCache(cacheKey);
-    if (!cached) return null;
-    const s = cached.snapshot;
-    const empty =
-      !s ||
-      ((s.medications?.length ?? 0) === 0 &&
-       (s.problems?.length ?? 0) === 0 &&
-       (s.allergies?.length ?? 0) === 0 &&
-       (s.labs?.length ?? 0) === 0);
-    if (empty) {
-      try { localStorage.removeItem(cacheKey); } catch { /* ignore */ }
-      return null;
-    }
-    return cached;
+  // Caching disabled: each page load runs the brief fresh against current
+  // OpenEMR data. Was causing demo flakiness when stale snapshots persisted
+  // across intake-processing reloads. The post-intake reload still uses
+  // sessionStorage (postIntakeFlagKey) which clears on tab close, so the
+  // intake auto-process flow keeps working — only the answer / snapshot
+  // cache is gone.
+  const initialCache: CachedConvo | null = null;
+  useEffect(() => {
+    try { localStorage.removeItem(cacheKey); } catch { /* ignore */ }
   }, [cacheKey]);
 
   const [messages, setMessages]         = useState<Message[]>(() => initialCache?.messages ?? []);
