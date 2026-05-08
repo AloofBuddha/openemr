@@ -100,6 +100,15 @@ export function CopilotPanel({
   };
 
   // ─── Send actions ───────────────────────────────────────────────────────
+  // Re-engage stick-to-bottom whenever the user explicitly signals "I want
+  // the live view again" — sending a message or focusing the input.
+  // Declared ahead of handleSend so the latter's useCallback deps array
+  // doesn't hit a temporal dead zone on first render.
+  const snapToBottom = useCallback((): void => {
+    stickToBottomRef.current = true;
+    messagesEndRef.current?.scrollIntoView({ block: 'nearest' });
+  }, []);
+
   const handleSend = useCallback((): void => {
     const text = inputText.trim();
     if (!text || isBusy) return;
@@ -124,13 +133,6 @@ export function CopilotPanel({
     const isGuidelinesChip = /guideline/i.test(text);
     send(text, false, [], false, !isGuidelinesChip);
   }, [isBusy, send]);
-
-  // Re-engage stick-to-bottom whenever the user explicitly signals "I want
-  // the live view again" — sending a message or focusing the input.
-  const snapToBottom = useCallback((): void => {
-    stickToBottomRef.current = true;
-    messagesEndRef.current?.scrollIntoView({ block: 'nearest' });
-  }, []);
 
   // ─── Sub-renders ────────────────────────────────────────────────────────
   const chatMessages = (

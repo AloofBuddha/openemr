@@ -14,12 +14,29 @@ interface Props {
   statusMessage?: string;
 }
 
-// Routing trace is a developer-facing artifact — useful for graders / engineers,
-// not for the physician. We only show it when the URL has `?debug=1`.
+// Routing trace + raw citation badges are developer-facing artifacts — not
+// for the physician. Enabled when the URL has `?debug=1`, then sticky in
+// sessionStorage for the rest of the tab session so the post-intake reload
+// (which strips query params) doesn't drop us out of debug mode.
+const DEBUG_FLAG_KEY = 'copilot_debug_mode';
+
 function useDebugMode(): boolean {
   return useMemo(() => {
     if (typeof window === 'undefined') return false;
-    return new URLSearchParams(window.location.search).get('debug') === '1';
+    try {
+      const url = new URLSearchParams(window.location.search);
+      if (url.get('debug') === '1') {
+        sessionStorage.setItem(DEBUG_FLAG_KEY, '1');
+        return true;
+      }
+      if (url.get('debug') === '0') {
+        sessionStorage.removeItem(DEBUG_FLAG_KEY);
+        return false;
+      }
+      return sessionStorage.getItem(DEBUG_FLAG_KEY) === '1';
+    } catch {
+      return false;
+    }
   }, []);
 }
 
