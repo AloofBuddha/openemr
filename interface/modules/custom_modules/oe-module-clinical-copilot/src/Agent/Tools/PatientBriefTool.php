@@ -270,12 +270,23 @@ final class PatientBriefTool
             return null;
         }
         $quote = (string) ($row['quote'] ?? '');
-        // Drop link silently when the chart's current value no longer
-        // contains the extracted quote (case-insensitive substring).
-        if ($quote !== '') {
-            $needle = strtolower(trim($quote));
-            $haystack = strtolower(trim($current));
-            if ($needle !== '' && $haystack !== '' && !str_contains($haystack, $needle) && !str_contains($needle, $haystack)) {
+        // Drop the link silently only when the chart's current value
+        // diverges from the source enough that the link would mislead.
+        // We anchor on the first meaningful word (drug name / allergen /
+        // condition) since dosage formatting routinely differs between
+        // the verbatim quote and OpenEMR's canonical fields ("Atorvastatin
+        // 20 mg PO at bedtime" vs "Atorvastatin 20 mg at bedtime"), but
+        // a name change ("Atorvastatin" → "Rosuvastatin") is a real edit.
+        if ($quote !== '' && $current !== '') {
+            $firstWord = static function (string $s): string {
+                $s = strtolower(trim(preg_replace('/[^\w\s]/u', ' ', $s) ?? ''));
+                $tokens = preg_split('/\s+/', $s, 2) ?: [''];
+                return $tokens[0];
+            };
+            $a = $firstWord($current);
+            $b = $firstWord($quote);
+            if ($a !== '' && $b !== '' && $a !== $b
+                    && !str_contains($a, $b) && !str_contains($b, $a)) {
                 return null;
             }
         }

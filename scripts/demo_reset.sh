@@ -185,6 +185,24 @@ reset_local() {
 reset_prod() {
   echo "==> Resetting Margaret (prod: $PROD_HOST)..."
 
+  echo "  Wiping Margaret's document files on disk + sidecar caches..."
+  # Lab uploads from prior demo runs leave PDFs in OpenEMR's documents
+  # storage even after the DB rows are dropped. Same with rendered page
+  # PNGs in the sidecar cache and orphaned extraction JSONs. Clear all
+  # of them so the next run starts from the same baseline every time.
+  ssh -i "$SSH_KEY" "$PROD_USER@$PROD_HOST" bash -s << WIPEEOF
+set -euo pipefail
+docker exec development-easy-openemr-1 sh -c "rm -f /var/www/localhost/htdocs/openemr/sites/default/documents/${PATIENT_PID}/* 2>/dev/null || true"
+SIDECAR=$PROD_PATH/copilot-agent
+# Drop every cached extraction + page render except the seed intake (9901).
+find "\$SIDECAR/extraction_cache" -maxdepth 1 -type f \\
+    \\( -name '*.json' -o -name '*.png' \\) \\
+    ! -name '${INTAKE_DOC_ID}.json' \\
+    ! -name '${INTAKE_DOC_ID}_page*.png' \\
+    -delete 2>/dev/null || true
+rm -f "\$SIDECAR/patient_intake_index/${PATIENT_PID}.json"
+WIPEEOF
+
   echo "  Running reset_margaret.sql on prod..."
   ssh -i "$SSH_KEY" "$PROD_USER@$PROD_HOST" \
     "cd $PROD_PATH && docker compose -f docker/development-easy/docker-compose.yml exec -T mysql mariadb -uopenemr -popenemr openemr" \
@@ -204,6 +222,35 @@ ${EXTRACTION_JSON}
 JSONEOF
 echo "  Files written."
 SSHEOF
+
+  # The intake PDF must exist at OpenEMR's documents path AND be rendered to
+  # PNGs so the source drawer can show the bbox overlay. /ingest renders on
+  # upload; this script bypasses /ingest, so we render explicitly.
+  PDF_LOCAL="$REPO_ROOT/example-documents/intake-forms/p01-chen-intake-typed.pdf"
+  if [[ -f "\$PDF_LOCAL" ]]; then
+    PDF_LOCAL="$PDF_LOCAL"
+  fi
+  PDF_LOCAL="$REPO_ROOT/example-documents/intake-forms/p01-chen-intake-typed.pdf"
+  if [[ -f "$PDF_LOCAL" ]]; then
+    echo "  Pushing intake PDF to OpenEMR documents path on prod..."
+    scp -i "$SSH_KEY" "$PDF_LOCAL" "$PROD_USER@$PROD_HOST:/tmp/margaret-intake.pdf" >/dev/null
+    ssh -i "$SSH_KEY" "$PROD_USER@$PROD_HOST" \
+      "docker cp /tmp/margaret-intake.pdf development-easy-openemr-1:/var/www/localhost/htdocs/openemr/sites/default/documents/${PATIENT_PID}/margaret-intake.pdf && \
+       docker exec development-easy-openemr-1 chown apache:apache /var/www/localhost/htdocs/openemr/sites/default/documents/${PATIENT_PID}/margaret-intake.pdf"
+
+    echo "  Rendering page PNGs into the sidecar cache so bbox overlays work..."
+    ssh -i "$SSH_KEY" "$PROD_USER@$PROD_HOST" bash -s << RENDEREOF
+set -euo pipefail
+cd $PROD_PATH/copilot-agent
+.venv/bin/python -c "
+from cache import render_pdf_pages_to_cache
+from pathlib import Path
+pdf = Path('/tmp/margaret-intake.pdf').read_bytes()
+n = render_pdf_pages_to_cache(Path('extraction_cache'), ${INTAKE_DOC_ID}, pdf)
+print(f'  rendered {n} page(s)')
+"
+RENDEREOF
+  fi
 
   echo ""
   echo "Done. Open Dr. Chen's chart for Margaret Chen on https://$PROD_HOST.nip.io"

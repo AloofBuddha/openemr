@@ -15,7 +15,11 @@ DELETE FROM form_encounter WHERE pid = 20;
 
 DELETE FROM prescriptions  WHERE patient_id = 20;
 
-DELETE FROM lists          WHERE pid = 20 AND type IN ('allergy', 'medical_problem');
+DELETE FROM lists          WHERE pid = 20 AND type IN ('allergy', 'medical_problem', 'surgery');
+
+DELETE FROM history_data   WHERE pid = 20;
+DELETE FROM copilot_source_links WHERE patient_id = 20;
+DELETE FROM copilot_brief_cache  WHERE patient_id = 20;
 
 DELETE FROM procedure_result
   WHERE procedure_report_id IN (
