@@ -665,20 +665,23 @@
   white-space: normal;
 }
 
-/* ── Inline citation type colors in LLM output ─────────────────────────── */
+/* ── Inline citation provenance colors in LLM output ────────────────────────
+ *
+ *   db        — chart row, no source PDF on file (gray, lowest visual weight)
+ *   doc-pdf   — chart row or document citation with PDF proof (green, "verified")
+ *   guideline — clinical-guideline corpus chunk (purple, knowledge-base)
+ *
+ * Color encodes provenance, not row type, so a glance tells the reader
+ * "this claim is backed by a real document I can click to inspect" vs
+ * "this claim is from the chart with no upstream proof."
+ */
 
-.copilot-cite-appointment { border-bottom-color: #5b9bd5; }
-.copilot-cite-appointment:hover { background: #e8f0f8; }
-.copilot-cite-encounter   { border-bottom-color: #6aaa5e; }
-.copilot-cite-encounter:hover   { background: #e8f8e8; }
-.copilot-cite-medication  { border-bottom-color: #d47b2e; }
-.copilot-cite-medication:hover  { background: #fef0e0; }
-.copilot-cite-lab         { border-bottom-color: #9c5ec4; }
-.copilot-cite-lab:hover         { background: #f3e8fb; }
-.copilot-cite-problem     { border-bottom-color: #4a90a4; }
-.copilot-cite-problem:hover     { background: #e8f4f8; }
-.copilot-cite-allergy     { border-bottom-color: #c0392b; }
-.copilot-cite-allergy:hover     { background: #fde8e8; }
+.copilot-cite-prov-db          { border-bottom-color: #6b7280; }
+.copilot-cite-prov-db:hover    { background: #eef0f2; }
+.copilot-cite-prov-doc-pdf     { border-bottom-color: #2f9e44; }
+.copilot-cite-prov-doc-pdf:hover { background: #e6f4ea; }
+.copilot-cite-prov-guideline   { border-bottom-color: #7c3aed; }
+.copilot-cite-prov-guideline:hover { background: #ede9fe; }
 
 /* ── Wide layout modifier ───────────────────────────────────────────────────── */
 
@@ -938,12 +941,8 @@
   font-weight: 600;
 }
 
-/* ── W2: guideline citation style ────────────────────────────────────────── */
-.copilot-cite-guideline {
-  border-bottom: 2px solid #7c3aed;
-  color: #5b21b6;
-}
-.copilot-cite-guideline:hover { background: #ede9fe; }
+/* W2: guideline drawer label color (chip in drawer header) — color logic
+ * for inline citations now lives in copilot-cite-prov-* above. */
 .copilot-drawer-type-guideline { background: #ede9fe; color: #5b21b6; }
 
 /* ── Snapshot lab flash on update ─────────────────────────────────────────── */
@@ -1106,10 +1105,8 @@
   background: #fafcfe;
 }
 
-/* ── ehr_record fallback (PHP no longer emits these, but guard rendering) ── */
+/* ── ehr_record drawer chip fallback (PHP no longer emits these) ── */
 .copilot-drawer-type-ehr_record { background: #4a5e72; color: #fff; }
-.copilot-cite-ehr_record       { border-bottom-color: #4a5e72; }
-.copilot-cite-ehr_record:hover { background: #eef2f7; }
 
 /* ── Agent routing trace (multi-agent observability) ───────────────────── */
 .copilot-routing {

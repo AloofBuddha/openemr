@@ -18,6 +18,24 @@ const SKIP_AUTO_LINK_RE        = /^(today|none|no |unknown|not |established)/i;
 
 // ─── Replace explicit [[N]]phrase[[/N]] markers ────────────────────────────
 
+// What kind of evidence backs this citation? Drives the inline color so the
+// reader can tell at a glance whether a claim is grounded in a chart row,
+// a chart row with PDF proof, or a clinical guideline.
+//   db        — chart-only (no source PDF on file)
+//   doc-pdf   — chart row OR document citation with a real PDF page to show
+//   guideline — clinical-guideline corpus chunk
+function _provenanceOf(src: CiteSource | undefined): 'db' | 'doc-pdf' | 'guideline' | null {
+  if (!src) return null;  // unknown source — emit no provenance class
+  if (src.type === 'guideline') return 'guideline';
+  // Document citation ([[DN]]) — extracted_results carry per-value bboxes
+  if (src.extracted_results?.some(r => r.bbox)) return 'doc-pdf';
+  // Chart row ([[PN]]) — source_link carries the join from copilot_source_links
+  if (src.source_link?.bbox) return 'doc-pdf';
+  // Chart row with doc reference but no bbox: still has page-image proof
+  if (src.source_link?.doc_id) return 'doc-pdf';
+  return 'db';
+}
+
 export function replaceCites(
   text: string,
   sources: Record<string, CiteSource>,
@@ -26,13 +44,15 @@ export function replaceCites(
   return text.replace(CITATION_PAIR_RE, (_, idx, inner) => {
     const src = sources[idx];
     const typeClass = src ? ` copilot-cite-${src.type}` : '';
+    const prov = _provenanceOf(src);
+    const provClass = prov ? ` copilot-cite-prov-${prov}` : '';
     // In debug mode, prefix the citation with its raw key so engineers can
     // tell at a glance which namespace fired ([[3]] vs [[P3]] vs [[D1]] vs [[G2]])
     // and whether the source map actually has that key.
     const debugBadge = debug
       ? `<span class="copilot-cite-debug${src ? '' : ' copilot-cite-debug-miss'}">[[${idx}]]</span>`
       : '';
-    return `<button class="copilot-cite-text${typeClass}" data-src="${idx}">${debugBadge}${replaceCites(inner, sources, debug)}</button>`;
+    return `<button class="copilot-cite-text${typeClass}${provClass}" data-src="${idx}">${debugBadge}${replaceCites(inner, sources, debug)}</button>`;
   });
 }
 

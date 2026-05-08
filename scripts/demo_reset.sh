@@ -185,75 +185,66 @@ reset_local() {
 reset_prod() {
   echo "==> Resetting Margaret (prod: $PROD_HOST)..."
 
+  PDF_LOCAL="$REPO_ROOT/example-documents/intake-forms/p01-chen-intake-typed.pdf"
+  if [[ ! -f "$PDF_LOCAL" ]]; then
+    echo "  ERROR: intake PDF missing: $PDF_LOCAL" >&2
+    exit 1
+  fi
+
   echo "  Wiping Margaret's document files on disk + sidecar caches..."
-  # Lab uploads from prior demo runs leave PDFs in OpenEMR's documents
-  # storage even after the DB rows are dropped. Same with rendered page
-  # PNGs in the sidecar cache and orphaned extraction JSONs. Clear all
-  # of them so the next run starts from the same baseline every time.
   ssh -i "$SSH_KEY" "$PROD_USER@$PROD_HOST" bash -s << WIPEEOF
 set -euo pipefail
 docker exec development-easy-openemr-1 sh -c "rm -f /var/www/localhost/htdocs/openemr/sites/default/documents/${PATIENT_PID}/* 2>/dev/null || true"
 SIDECAR=$PROD_PATH/copilot-agent
-# Drop every cached extraction + page render except the seed intake (9901).
+# Wipe everything for this doc — /ingest will recreate it cleanly.
 find "\$SIDECAR/extraction_cache" -maxdepth 1 -type f \\
-    \\( -name '*.json' -o -name '*.png' \\) \\
-    ! -name '${INTAKE_DOC_ID}.json' \\
-    ! -name '${INTAKE_DOC_ID}_page*.png' \\
+    \\( -name '${INTAKE_DOC_ID}.json' -o -name '${INTAKE_DOC_ID}_page*.png' \\) \\
     -delete 2>/dev/null || true
 rm -f "\$SIDECAR/patient_intake_index/${PATIENT_PID}.json"
 WIPEEOF
 
-  echo "  Running reset_margaret.sql on prod..."
+  echo "  Running reset_margaret.sql on prod (clears clinical history, inserts doc row 9901)..."
   ssh -i "$SSH_KEY" "$PROD_USER@$PROD_HOST" \
     "cd $PROD_PATH && docker compose -f docker/development-easy/docker-compose.yml exec -T mysql mariadb -uopenemr -popenemr openemr" \
     < "$SQL_FILE"
   echo "  SQL applied."
 
-  echo "  Writing sidecar JSON files on prod..."
-  ssh -i "$SSH_KEY" "$PROD_USER@$PROD_HOST" bash -s << SSHEOF
-set -euo pipefail
-SIDECAR="$PROD_PATH/copilot-agent"
-mkdir -p "\$SIDECAR/patient_intake_index" "\$SIDECAR/extraction_cache"
-cat > "\$SIDECAR/patient_intake_index/${PATIENT_PID}.json" << 'JSONEOF'
-${INDEX_JSON}
-JSONEOF
-cat > "\$SIDECAR/extraction_cache/${INTAKE_DOC_ID}.json" << 'JSONEOF'
-${EXTRACTION_JSON}
-JSONEOF
-echo "  Files written."
-SSHEOF
+  echo "  Pushing intake PDF to OpenEMR documents path on prod..."
+  scp -i "$SSH_KEY" "$PDF_LOCAL" "$PROD_USER@$PROD_HOST:/tmp/margaret-intake.pdf" >/dev/null
+  ssh -i "$SSH_KEY" "$PROD_USER@$PROD_HOST" \
+    "docker cp /tmp/margaret-intake.pdf development-easy-openemr-1:/var/www/localhost/htdocs/openemr/sites/default/documents/${PATIENT_PID}/margaret-intake.pdf && \
+     docker exec development-easy-openemr-1 chown apache:apache /var/www/localhost/htdocs/openemr/sites/default/documents/${PATIENT_PID}/margaret-intake.pdf"
 
-  # The intake PDF must exist at OpenEMR's documents path AND be rendered to
-  # PNGs so the source drawer can show the bbox overlay. /ingest renders on
-  # upload; this script bypasses /ingest, so we render explicitly.
-  PDF_LOCAL="$REPO_ROOT/example-documents/intake-forms/p01-chen-intake-typed.pdf"
-  if [[ -f "\$PDF_LOCAL" ]]; then
-    PDF_LOCAL="$PDF_LOCAL"
-  fi
-  PDF_LOCAL="$REPO_ROOT/example-documents/intake-forms/p01-chen-intake-typed.pdf"
-  if [[ -f "$PDF_LOCAL" ]]; then
-    echo "  Pushing intake PDF to OpenEMR documents path on prod..."
-    scp -i "$SSH_KEY" "$PDF_LOCAL" "$PROD_USER@$PROD_HOST:/tmp/margaret-intake.pdf" >/dev/null
-    ssh -i "$SSH_KEY" "$PROD_USER@$PROD_HOST" \
-      "docker cp /tmp/margaret-intake.pdf development-easy-openemr-1:/var/www/localhost/htdocs/openemr/sites/default/documents/${PATIENT_PID}/margaret-intake.pdf && \
-       docker exec development-easy-openemr-1 chown apache:apache /var/www/localhost/htdocs/openemr/sites/default/documents/${PATIENT_PID}/margaret-intake.pdf"
-
-    echo "  Rendering page PNGs into the sidecar cache so bbox overlays work..."
-    ssh -i "$SSH_KEY" "$PROD_USER@$PROD_HOST" bash -s << RENDEREOF
+  echo "  Calling sidecar /ingest with the real PDF bytes (fresh extraction → bboxes + page PNGs)..."
+  # Why /ingest instead of pre-baked JSON: this is the real production path —
+  # exercises the live extractor, schema validation, page-render pipeline, and
+  # patient-index registration in one call. Result has bboxes for the source
+  # drawer overlay; pre-baked JSON did not.
+  B64=$(base64 -w0 < "$PDF_LOCAL")
+  ssh -i "$SSH_KEY" "$PROD_USER@$PROD_HOST" bash -s << INGESTEOF
 set -euo pipefail
-cd $PROD_PATH/copilot-agent
-.venv/bin/python -c "
-from cache import render_pdf_pages_to_cache
-from pathlib import Path
-pdf = Path('/tmp/margaret-intake.pdf').read_bytes()
-n = render_pdf_pages_to_cache(Path('extraction_cache'), ${INTAKE_DOC_ID}, pdf)
-print(f'  rendered {n} page(s)')
-"
-RENDEREOF
-  fi
+PAYLOAD=\$(mktemp)
+trap 'rm -f \$PAYLOAD' EXIT
+cat > "\$PAYLOAD" << 'JSONEOF'
+{
+  "patient_id": ${PATIENT_PID},
+  "openemr_doc_id": ${INTAKE_DOC_ID},
+  "doc_type": "intake_form",
+  "mimetype": "application/pdf",
+  "doc_name": "margaret-intake.pdf",
+  "file_bytes_b64": "${B64}"
+}
+JSONEOF
+RESPONSE=\$(curl -s -X POST http://127.0.0.1:8400/ingest \\
+  -H 'Content-Type: application/json' \\
+  --data-binary @"\$PAYLOAD")
+echo "  Sidecar response (truncated):"
+echo "\$RESPONSE" | python3 -c "import sys, json; d=json.load(sys.stdin); print('    doc_type=' + str(d.get('doc_type'))); meds=d.get('current_medications') or []; print(f'    {len(meds)} med(s) extracted, first bbox: ' + ('YES' if (meds and (meds[0].get('source_citation') or {}).get('bbox')) else 'NO')); print('    extraction_warnings=' + str(d.get('extraction_warnings') or []))"
+INGESTEOF
 
   echo ""
   echo "Done. Open Dr. Chen's chart for Margaret Chen on https://$PROD_HOST.nip.io"
+  echo "  → On panel open, the copilot will auto-process the intake form (doc 9901)."
 }
 
 # ── Entry point ───────────────────────────────────────────────────────────────

@@ -20,7 +20,8 @@ interface Props {
   source: CiteSource;
   onClose: () => void;
   width: number | undefined;
-  webRoot?: string;  // e.g. "/interface/modules/custom_modules/oe-module-clinical-copilot/public"
+  webRoot?: string;  // module public URL (where agent-page.php lives)
+                     // e.g. "/interface/modules/custom_modules/oe-module-clinical-copilot/public"
   docId?: number;    // OpenEMR document id for bbox-overlay page-image fetches
   citedText?: string; // exact phrase the user clicked, used to target the right bbox
 }

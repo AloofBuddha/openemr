@@ -40,12 +40,13 @@ describe('replaceCites', () => {
     expect(out).toContain('data-src="P4"');
   });
 
-  it('omits the type-specific class when the source key is unknown', () => {
+  it('omits both type and provenance classes when the source key is unknown', () => {
     const out = replaceCites('[[P9]]Mystery[[/P9]]', {});
     expect(out).toContain('data-src="P9"');
-    // Base class still applied; only the {type} suffix is missing.
+    // Base class still applied; type and provenance classes are absent.
     expect(out).toContain('copilot-cite-text');
     expect(out).toMatch(/class="copilot-cite-text"/);
+    expect(out).not.toMatch(/copilot-cite-prov-/);
   });
 
   it('returns text unchanged when no citation markers are present', () => {
@@ -66,6 +67,47 @@ describe('replaceCites', () => {
     expect(out).toContain('data-src="D1"');
     expect(out).toContain('data-src="P3"');
     expect(out).toContain('copilot-cite-document');
+  });
+});
+
+// ─── Provenance class — drives the inline color ──────────────────────────
+
+describe('replaceCites provenance class', () => {
+  it('chart row with no source_link → prov-db', () => {
+    const out = replaceCites('[[P1]]m[[/P1]]', { P1: med });
+    expect(out).toContain('copilot-cite-prov-db');
+  });
+
+  it('chart row with source_link.bbox → prov-doc-pdf', () => {
+    const linked: CiteSource = {
+      ...med,
+      source_link: {
+        doc_id: 9901, page: 2,
+        bbox: { page: 2, x0: 0, y0: 0, x1: 1, y1: 1, page_width: 612, page_height: 792 },
+      },
+    };
+    const out = replaceCites('[[P1]]m[[/P1]]', { P1: linked });
+    expect(out).toContain('copilot-cite-prov-doc-pdf');
+    expect(out).not.toContain('copilot-cite-prov-db');
+  });
+
+  it('chart row with source_link.doc_id but no bbox → still prov-doc-pdf (page proof)', () => {
+    const linked: CiteSource = {
+      ...med,
+      source_link: { doc_id: 9901, page: 1 },
+    };
+    const out = replaceCites('[[P1]]m[[/P1]]', { P1: linked });
+    expect(out).toContain('copilot-cite-prov-doc-pdf');
+  });
+
+  it('guideline citation → prov-guideline', () => {
+    const guideline: CiteSource = {
+      type: 'guideline',
+      label: '[ACC/AHA 2023 §3.2]',
+      fields: [],
+    };
+    const out = replaceCites('[[G1]]apixaban[[/G1]]', { G1: guideline });
+    expect(out).toContain('copilot-cite-prov-guideline');
   });
 });
 

@@ -30,6 +30,12 @@ export function CopilotPanel({
   } = useCopilotChat(pid, apiUrl, csrfToken, physicianId);
 
   const uploadUrl = apiUrl.replace(/chat\.php([^/]*)$/, `upload.php?pid=${pid}&site=default`);
+  // The module's public URL — same path that hosts chat.php, upload.php,
+  // agent-page.php. SourceDrawer fetches rendered PDF page PNGs through
+  // agent-page.php here. We derive it from apiUrl so the bootstrap stays
+  // single-source-of-truth (vs. webRoot, which is the OpenEMR root and
+  // does not host agent-page.php).
+  const modulePublicUrl = apiUrl.replace(/\/chat\.php([^/]*)$/, '');
 
   const [collapsed, setCollapsed]           = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -242,7 +248,7 @@ export function CopilotPanel({
               source={activeSource}
               onClose={() => setActiveSource(null)}
               width={drawerWidth}
-              webRoot={webRoot}
+              webRoot={modulePublicUrl}
               docId={activeSource.openemr_doc_id}
               citedText={activeCitedText}
             />
