@@ -436,16 +436,14 @@ export function useCopilotChat(
     startupRanRef.current = true;
 
     (async () => {
-      // Process any pre-uploaded intake forms (front desk path).
-      // If an intake was processed: the synthetic intake-summary message
-      // already shows what was extracted — that IS the welcome content
-      // for a new-patient chart, no need to layer a generic brief on top.
-      // The doctor reads the intake, then asks follow-ups.
-      // If no intake: fire the brief to summarise the existing chart.
-      const { count } = await checkAndProcessIntakes();
-      if (count === 0) {
-        send('Brief me on this patient.', true, [], false);
-      }
+      // Process any pre-uploaded intake forms (front desk path), then
+      // always run the brief. The synthetic intake-summary message stays
+      // above the brief — but the brief is what gives the doctor
+      // clickable [[N]] citations on each med/allergy/problem, which
+      // resolve to the bbox-overlay source drawer. The synthetic message
+      // alone has no citation markers (it's locally constructed JSX).
+      await checkAndProcessIntakes();
+      send('Brief me on this patient.', true, [], false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -551,13 +549,16 @@ export function useCopilotChat(
     setNeedsSave(true);
   }, []);
 
-  // In-session intake upload: writeback only, no auto-brief and no page
-  // reload. The synthetic intake-summary message added by
-  // checkAndProcessIntakes is the visible result — same as the chart-load
-  // path. Doctor reads the extraction summary, then asks follow-ups.
+  // In-session intake upload: writeback + brief regen, no page reload.
+  // Same flow as the chart-load path — synthetic intake summary shows
+  // what was extracted, then the brief streams below it with [[N]]
+  // citations on each med/allergy/problem that resolve to bbox overlays
+  // on the intake PDF.
   const processNewIntake = useCallback(async (): Promise<void> => {
-    await checkAndProcessIntakes();
-  }, [checkAndProcessIntakes]);
+    const { count } = await checkAndProcessIntakes();
+    if (count === 0) return;
+    send('Brief me on this patient.', true, [], false);
+  }, [checkAndProcessIntakes, send]);
 
   return {
     messages,
