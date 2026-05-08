@@ -1000,14 +1000,13 @@
   color: #5b9bd5;
 }
 
-/* ── Source drawer: PDF bounding-box overlay for document citations ────── */
+/* ── Source drawer: cropped PDF region with sidecar-baked highlight ────── */
 .copilot-bbox-section {
-  margin: 0 0 14px 0;
-  padding: 0 0 10px 0;
-  border-bottom: 1px solid #eef2f7;
+  margin: 12px 0 8px 0;
+  padding: 10px 0 0 0;
+  border-top: 1px solid #eef2f7;
 }
 .copilot-bbox-page {
-  position: relative;
   width: 100%;
   background: #fafcfe;
   border: 1px solid #c5d8ec;
@@ -1016,17 +1015,13 @@
   display: block;
 }
 .copilot-bbox-page img {
-  width: 100%;
-  height: auto;
+  /* Don't stretch a small crop to fill the drawer — that re-creates the
+   * "huge unreadable image" the crop was meant to fix. Cap at the source
+   * pixel size; if the drawer is narrow, scale down to fit. */
   display: block;
-}
-.copilot-bbox-rect {
-  position: absolute;
-  border: 2px solid #fbbf24;
-  background: rgba(251, 191, 36, 0.18);
-  border-radius: 2px;
-  pointer-events: none;
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.6) inset;
+  margin: 0 auto;
+  max-width: 100%;
+  height: auto;
 }
 .copilot-bbox-caption {
   margin: 6px 0 0 0;
@@ -1039,6 +1034,11 @@
   background: #eef4fa;
   padding: 1px 5px;
   border-radius: 3px;
+}
+.copilot-drawer-link-inline {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 11px;
 }
 
 /* ── Source drawer: verbatim-quote layout for [[DN]] document citations ── */

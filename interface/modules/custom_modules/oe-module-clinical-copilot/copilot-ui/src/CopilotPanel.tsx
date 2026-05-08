@@ -249,6 +249,8 @@ export function CopilotPanel({
               onClose={() => setActiveSource(null)}
               width={drawerWidth}
               webRoot={modulePublicUrl}
+              openemrRoot={webRoot}
+              pid={pid}
               docId={activeSource.openemr_doc_id}
               citedText={activeCitedText}
             />

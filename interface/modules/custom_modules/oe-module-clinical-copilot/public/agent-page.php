@@ -41,8 +41,24 @@ if ($docId === false || $docId === null || $docId <= 0
     exit('Invalid doc_id or page');
 }
 
+// Optional bbox crop params. When all six are present, the sidecar returns a
+// cropped + highlighted region instead of the full page — much more legible
+// at the drawer's typical width and removes the need for client-side overlay.
+$cropParams = [];
+foreach (['x0', 'y0', 'x1', 'y1', 'pw', 'ph'] as $key) {
+    $val = filter_input(INPUT_GET, $key, FILTER_VALIDATE_FLOAT);
+    if ($val === false || $val === null) {
+        $cropParams = [];
+        break;
+    }
+    $cropParams[$key] = $val;
+}
+
 $sidecarHost = getenv('COPILOT_SIDECAR_HOST') ?: '127.0.0.1';
 $sidecarUrl  = "http://{$sidecarHost}:8400/docs/{$docId}/page/{$page}";
+if (!empty($cropParams)) {
+    $sidecarUrl .= '?' . http_build_query($cropParams);
+}
 
 $ch = curl_init($sidecarUrl);
 if ($ch === false) {

@@ -11,6 +11,7 @@ in the lifespan context, so this module is cheap to import for tests.
 from __future__ import annotations
 
 import base64
+import io
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -302,19 +303,108 @@ def health() -> dict:
 
 
 @app.get("/docs/{doc_id}/page/{page_num}")
-def doc_page_image(doc_id: int, page_num: int) -> Any:
+def doc_page_image(
+    doc_id: int,
+    page_num: int,
+    x0: float | None = None,
+    y0: float | None = None,
+    x1: float | None = None,
+    y1: float | None = None,
+    pw: float | None = None,
+    ph: float | None = None,
+) -> Any:
     """Return the cached PNG for a given page of an extracted PDF.
 
-    Used by the citation source drawer to render the page with a yellow
-    bounding-box overlay on the cited region. The PHP module proxies this
-    through (it's the same internal-only sidecar pattern as /query); the
-    sidecar never exposes patient identifiers in the URL.
+    When all six bbox query params are supplied, returns a cropped region
+    around the bbox with the cited area highlighted in yellow — that's
+    what the citation source drawer asks for. Without them, returns the
+    full page (legacy callers + dev tools).
+
+    The PHP module proxies this through; the sidecar is never reachable
+    from outside.
     """
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, Response
     path = _CACHE_DIR / f"{doc_id}_page{page_num}.png"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Page image not in cache")
+
+    bbox_args = (x0, y0, x1, y1, pw, ph)
+    if all(v is not None for v in bbox_args):
+        try:
+            png = _crop_with_highlight(path, x0, y0, x1, y1, pw, ph)  # type: ignore[arg-type]
+            return Response(content=png, media_type="image/png")
+        except Exception:
+            logger.exception("Crop failed for doc=%d page=%d, falling back to full page",
+                             doc_id, page_num)
+            # Fall through to full-page render
+
     return FileResponse(str(path), media_type="image/png")
+
+
+def _crop_with_highlight(
+    png_path: Path,
+    x0_pdf: float, y0_pdf: float, x1_pdf: float, y1_pdf: float,
+    page_w_pdf: float, page_h_pdf: float,
+    padding_pct: float = 0.04,
+) -> bytes:
+    """Crop a region of the cached page PNG around the given PDF bbox and
+    draw a yellow rectangle on the cited area. Returns PNG bytes.
+
+    The bbox is in PDF coords (origin bottom-left, points). The PNG was
+    rendered at 150 DPI, so its pixel dimensions are page_size * 150/72.
+    We compute the scale from the actual PNG size (robust to render-DPI
+    changes) and convert to image-pixel coords (origin top-left).
+
+    Padding is added so the cropped region has visual context around the
+    cited value rather than a tight cut.
+    """
+    from PIL import Image, ImageDraw
+
+    with Image.open(png_path) as src:
+        img = src.convert("RGBA")
+    img_w, img_h = img.size
+
+    sx = img_w / page_w_pdf
+    sy = img_h / page_h_pdf
+
+    px_x0 = x0_pdf * sx
+    px_x1 = x1_pdf * sx
+    # PDF y-origin is bottom; image y-origin is top — flip.
+    px_y0 = (page_h_pdf - y1_pdf) * sy
+    px_y1 = (page_h_pdf - y0_pdf) * sy
+
+    # Padding: at least 60 px or padding_pct of the larger image dimension.
+    pad = max(60.0, max(img_w, img_h) * padding_pct)
+    crop_x0 = max(0.0, px_x0 - pad)
+    crop_y0 = max(0.0, px_y0 - pad * 1.5)  # extra room above for context
+    crop_x1 = min(float(img_w), px_x1 + pad)
+    crop_y1 = min(float(img_h), px_y1 + pad)
+
+    # Defensive: if the bbox is degenerate or off-page, return the whole page
+    # rather than a 0-size crop.
+    if crop_x1 - crop_x0 < 10 or crop_y1 - crop_y0 < 10:
+        crop = img
+        rect_offset_x = 0.0
+        rect_offset_y = 0.0
+    else:
+        crop = img.crop((int(crop_x0), int(crop_y0), int(crop_x1), int(crop_y1)))
+        rect_offset_x = crop_x0
+        rect_offset_y = crop_y0
+
+    draw = ImageDraw.Draw(crop)
+    rect = (
+        px_x0 - rect_offset_x,
+        px_y0 - rect_offset_y,
+        px_x1 - rect_offset_x,
+        px_y1 - rect_offset_y,
+    )
+    # Translucent yellow fill + solid yellow outline. Width 3 px reads
+    # well at the drawer's typical 200–500 px width.
+    draw.rectangle(rect, outline=(247, 178, 0, 255), width=3)
+
+    buf = io.BytesIO()
+    crop.convert("RGB").save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
 
 
 @app.get("/patients/{pid}/unprocessed-intakes")

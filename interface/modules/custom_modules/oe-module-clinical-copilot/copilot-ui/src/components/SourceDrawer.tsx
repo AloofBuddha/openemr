@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 
 import type { BBox, CiteSource, ExtractedResult } from '../types';
@@ -20,10 +19,12 @@ interface Props {
   source: CiteSource;
   onClose: () => void;
   width: number | undefined;
-  webRoot?: string;  // module public URL (where agent-page.php lives)
-                     // e.g. "/interface/modules/custom_modules/oe-module-clinical-copilot/public"
-  docId?: number;    // OpenEMR document id for bbox-overlay page-image fetches
-  citedText?: string; // exact phrase the user clicked, used to target the right bbox
+  webRoot?: string;       // module public URL (where agent-page.php lives)
+                          // e.g. "/interface/modules/custom_modules/oe-module-clinical-copilot/public"
+  openemrRoot?: string;   // OpenEMR site root (for the "Open full PDF" link via controller.php)
+  pid?: number;           // patient id for the OpenEMR document URL
+  docId?: number;         // OpenEMR document id for bbox-overlay page-image fetches
+  citedText?: string;     // exact phrase the user clicked, used to target the right bbox
 }
 
 // Pick the result whose value (or quote, or label) best matches the phrase
@@ -66,63 +67,41 @@ function _matchResult(
   return results.find(r => r.bbox) ?? null;
 }
 
-interface OverlayProps {
-  bbox: BBox;
-  imgSrc: string;
+// Build the agent-page.php URL. When bbox is supplied, request a cropped
+// region with the highlight baked in by the sidecar — much more legible
+// at the drawer's typical width than scaling a full page in CSS.
+function _pageImageUrl(
+  webRoot: string,
+  docId: number,
+  pageNum: number,
+  bbox: BBox | null,
+): string {
+  const base = `${webRoot}/agent-page.php?doc_id=${docId}&page=${pageNum}`;
+  if (!bbox) return base;
+  const params = new URLSearchParams({
+    x0: bbox.x0.toString(),
+    y0: bbox.y0.toString(),
+    x1: bbox.x1.toString(),
+    y1: bbox.y1.toString(),
+    pw: bbox.page_width.toString(),
+    ph: bbox.page_height.toString(),
+  });
+  return `${base}&${params}`;
 }
 
-// Renders the page PNG at its natural size and overlays a yellow rect
-// scaled to match. PDF coords are bottom-origin in points, image is
-// top-origin in pixels — we flip y at render time.
-function PageOverlay({ bbox, imgSrc }: OverlayProps) {
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
-
-  useEffect(() => {
-    setLoaded(false);
-    setImgSize(null);
-  }, [imgSrc]);
-
-  const overlayStyle = useMemo(() => {
-    if (!loaded || !imgSize) return null;
-    // PDF coords are in points; the PNG is rendered at 150 DPI.
-    // Both axes scale by (image_pixels / pdf_points).
-    const sx = imgSize.w / bbox.page_width;
-    const sy = imgSize.h / bbox.page_height;
-    const left = bbox.x0 * sx;
-    const width = (bbox.x1 - bbox.x0) * sx;
-    // Flip y: PDF origin is bottom-left, canvas is top-left.
-    const top = (bbox.page_height - bbox.y1) * sy;
-    const height = (bbox.y1 - bbox.y0) * sy;
-    return {
-      left: `${left}px`,
-      top: `${top}px`,
-      width: `${width}px`,
-      height: `${height}px`,
-    };
-  }, [loaded, imgSize, bbox]);
-
-  return (
-    <div className="copilot-bbox-page">
-      <img
-        ref={imgRef}
-        src={imgSrc}
-        alt={`Page ${bbox.page}`}
-        onLoad={() => {
-          const el = imgRef.current;
-          if (el) {
-            setImgSize({ w: el.clientWidth, h: el.clientHeight });
-            setLoaded(true);
-          }
-        }}
-      />
-      {overlayStyle && <div className="copilot-bbox-rect" style={overlayStyle} />}
-    </div>
-  );
+// OpenEMR document download URL — opens the full PDF in a new tab.
+function _fullDocUrl(
+  openemrRoot: string | undefined,
+  pid: number | undefined,
+  docId: number,
+): string | null {
+  if (!openemrRoot || !pid) return null;
+  return `${openemrRoot}/controller.php?document&retrieve&patient_id=${pid}&document_id=${docId}&as_file=false`;
 }
 
-export function SourceDrawer({ source, onClose, width, webRoot, docId, citedText = '' }: Props) {
+export function SourceDrawer({
+  source, onClose, width, webRoot, openemrRoot, pid, docId, citedText = '',
+}: Props) {
   const typeLabel = TYPE_LABELS[source.type] ?? source.type;
 
   // OpenEMR uses jQuery + Bootstrap collapse for its expandable cards.
@@ -155,47 +134,7 @@ export function SourceDrawer({ source, onClose, width, webRoot, docId, citedText
         <button className="copilot-drawer-close" onClick={onClose} title="Close"><X size={14} /></button>
       </div>
       <div className="copilot-drawer-body">
-        {(() => {
-          // Two paths into the bbox panel:
-          // 1) [[DN]] clicks: source has extracted_results — pick the one
-          //    whose value matches the cited phrase.
-          // 2) [[PN]] clicks on chart rows that came from an intake doc:
-          //    source has a source_link populated by the brief tool's
-          //    JOIN against copilot_source_links.
-          const featured = _matchResult(source.extracted_results, citedText);
-          const linkBbox = source.source_link?.bbox ?? null;
-          const linkDocId = source.source_link?.doc_id;
-
-          let bbox = featured?.bbox ?? linkBbox ?? null;
-          let activeDocId = featured?.bbox ? docId : (linkDocId ?? docId);
-          let label = featured?.label ?? source.label;
-          let value = featured?.value ?? '';
-          let pageNum = bbox?.page ?? source.source_link?.page ?? null;
-
-          // No bbox but we DO have a doc reference (e.g. PMH entry: doc-level
-          // link, no per-field coords). Still render the page image so the
-          // physician can scan for the value visually.
-          const hasAnyDocRef = bbox || (linkDocId && pageNum);
-
-          if (!hasAnyDocRef || !webRoot || !activeDocId) return null;
-          const imgSrc = `${webRoot}/agent-page.php?doc_id=${activeDocId}&page=${pageNum}`;
-          return (
-            <div className="copilot-bbox-section">
-              <p className="copilot-drawer-section-label">
-                {citedText ? <>Source · &ldquo;{citedText}&rdquo; · page {pageNum}</>
-                           : <>Source · page {pageNum}</>}
-              </p>
-              {bbox
-                ? <PageOverlay bbox={bbox} imgSrc={imgSrc} />
-                : <div className="copilot-bbox-page"><img src={imgSrc} alt={`Page ${pageNum}`} /></div>}
-              <p className="copilot-bbox-caption">
-                {bbox
-                  ? <>Yellow box: <strong>{label}</strong>{value && <> = <code>{value}</code></>}</>
-                  : <>Source page (no field-level coordinates for this entry)</>}
-              </p>
-            </div>
-          );
-        })()}
+        {/* DB info first — what the chart actually says, in plain text. */}
         {source.extracted_results && source.extracted_results.length > 0 ? (
           <>
             <p className="copilot-drawer-section-label">Extracted from this document</p>
@@ -233,19 +172,59 @@ export function SourceDrawer({ source, onClose, width, webRoot, docId, citedText
         ) : (
           <p className="copilot-drawer-empty">No record details available.</p>
         )}
+
+        {/* Cropped PDF region with the cited area highlighted. The sidecar
+            crops + draws the yellow rect server-side so the image stays
+            legible at any drawer width and we don't need a JS overlay. */}
+        {(() => {
+          const featured = _matchResult(source.extracted_results, citedText);
+          const linkBbox = source.source_link?.bbox ?? null;
+          const linkDocId = source.source_link?.doc_id;
+
+          const bbox: BBox | null = featured?.bbox ?? linkBbox ?? null;
+          const activeDocId = featured?.bbox ? docId : (linkDocId ?? docId);
+          const label = featured?.label ?? source.label;
+          const value = featured?.value ?? '';
+          const pageNum = bbox?.page ?? source.source_link?.page ?? null;
+
+          // No bbox but we DO have a doc reference (PMH entry, doc-level
+          // link, no per-field coords). Still render the page image.
+          const hasAnyDocRef = bbox || (linkDocId && pageNum);
+          if (!hasAnyDocRef || !webRoot || !activeDocId || !pageNum) return null;
+
+          const imgSrc = _pageImageUrl(webRoot, activeDocId, pageNum, bbox);
+          const fullPdfUrl = source.doc_url ?? _fullDocUrl(openemrRoot, pid, activeDocId);
+
+          return (
+            <div className="copilot-bbox-section">
+              <p className="copilot-drawer-section-label">
+                {citedText ? <>Source · &ldquo;{citedText}&rdquo; · page {pageNum}</>
+                           : <>Source · page {pageNum}</>}
+              </p>
+              <div className="copilot-bbox-page">
+                <img src={imgSrc} alt={`Page ${pageNum} excerpt`} />
+              </div>
+              <p className="copilot-bbox-caption">
+                {bbox
+                  ? <>Yellow box: <strong>{label}</strong>{value && <> = <code>{value}</code></>}</>
+                  : <>Source page (no field-level coordinates for this entry)</>}
+              </p>
+              {fullPdfUrl && (
+                <a
+                  href={fullPdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="copilot-drawer-link copilot-drawer-link-inline"
+                >
+                  <ExternalLink size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                  Open full PDF in new tab
+                </a>
+              )}
+            </div>
+          );
+        })()}
       </div>
       <div className="copilot-drawer-footer">
-        {source.doc_url && (
-          <a
-            href={source.doc_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="copilot-drawer-link"
-          >
-            <ExternalLink size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-            View source document
-          </a>
-        )}
         {source.scroll_to && (
           <button className="copilot-drawer-link" onClick={handleScrollTo}>View in chart ↓</button>
         )}
