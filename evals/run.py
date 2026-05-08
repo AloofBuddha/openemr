@@ -36,7 +36,7 @@ def _make_anthropic_client() -> anthropic.Anthropic:
     Mirrors the sidecar's main.py setup so eval runs land in LangSmith
     with full prompt/response/token detail, not just node-level spans.
     """
-    client = _make_anthropic_client()
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     if os.environ.get("LANGCHAIN_TRACING_V2", "").lower() == "true" \
             and os.environ.get("LANGCHAIN_API_KEY"):
         from langsmith.wrappers import wrap_anthropic
