@@ -436,32 +436,14 @@ export function useCopilotChat(
     startupRanRef.current = true;
 
     (async () => {
-      // If we just reloaded after intake write-back, the cache holds the
-      // synthetic message + snapshot but no brief yet — start the brief now.
-      // Use W1 (chat.php) so the patient context is rebuilt from the DB,
-      // which now includes the intake-written allergies/meds/vitals.
-      if (sessionStorage.getItem(postIntakeFlagKey) === '1') {
-        sessionStorage.removeItem(postIntakeFlagKey);
-        send('Brief me on this patient.', true);
-        return;
-      }
-
-      const { count } = await checkAndProcessIntakes();
-      if (count > 0) {
-        // Force-write the synthetic message + intake snapshot to cache so the
-        // page reload doesn't lose them. setNeedsSave is async via React state,
-        // so we save explicitly here before triggering a reload.
-        saveCache(cacheKey, messagesRef.current, sources, snapshotRef.current, uploadedDocIdsRef.current);
-        sessionStorage.setItem(postIntakeFlagKey, '1');
-        // Reload so OpenEMR's patient summary cards re-render with the data
-        // that was just written to the chart by intake-process.php.
-        setTimeout(() => { window.location.reload(); }, 100);
-        return;
-      }
-
-      if (!hasLocalCache.current) {
-        send('Brief me on this patient.', true, [], false);
-      }
+      // Process any pre-uploaded intake forms (front desk path) and chain
+      // straight into the brief. No page reload — keeps the synthetic
+      // intake-summary message visible in chat (was being dropped by the
+      // reload now that localStorage caching is disabled). The OpenEMR
+      // sidebar cards stay stale until the next natural navigation, but
+      // the in-app snapshot panel updates via addIntakeToSnapshot.
+      await checkAndProcessIntakes();
+      send('Brief me on this patient.', true, [], false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -567,20 +549,17 @@ export function useCopilotChat(
     setNeedsSave(true);
   }, []);
 
-  // Run the same writeback + reload flow that startup uses for pre-uploaded
-  // intakes — so an in-session intake upload behaves identically:
+  // In-session intake upload: writeback + brief regen, no page reload.
   //   1. process-pending → PHP writeIntakeToOpenEMR → meds/allergies/problems
   //      land in OpenEMR + copilot_source_links populated with bbox refs.
-  //   2. Save cache so the synthetic intake-summary message survives reload.
-  //   3. Set the post-intake session flag so post-reload runs the brief.
-  //   4. Reload — the brief regenerates against the freshly-populated chart.
+  //   2. Send a fresh brief query — the brief tool reads the freshly-
+  //      populated chart and the synthetic intake-summary message stays
+  //      above the brief in the chat.
   const processNewIntake = useCallback(async (): Promise<void> => {
     const { count } = await checkAndProcessIntakes();
     if (count === 0) return;
-    saveCache(cacheKey, messagesRef.current, sources, snapshotRef.current, uploadedDocIdsRef.current);
-    sessionStorage.setItem(postIntakeFlagKey, '1');
-    setTimeout(() => { window.location.reload(); }, 100);
-  }, [checkAndProcessIntakes, cacheKey, sources, postIntakeFlagKey]);
+    send('Brief me on this patient.', true, [], false);
+  }, [checkAndProcessIntakes, send]);
 
   return {
     messages,
