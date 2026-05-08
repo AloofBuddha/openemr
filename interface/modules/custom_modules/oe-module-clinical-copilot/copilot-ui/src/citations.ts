@@ -21,11 +21,18 @@ const SKIP_AUTO_LINK_RE        = /^(today|none|no |unknown|not |established)/i;
 export function replaceCites(
   text: string,
   sources: Record<string, CiteSource>,
+  debug: boolean = false,
 ): string {
   return text.replace(CITATION_PAIR_RE, (_, idx, inner) => {
     const src = sources[idx];
     const typeClass = src ? ` copilot-cite-${src.type}` : '';
-    return `<button class="copilot-cite-text${typeClass}" data-src="${idx}">${replaceCites(inner, sources)}</button>`;
+    // In debug mode, prefix the citation with its raw key so engineers can
+    // tell at a glance which namespace fired ([[3]] vs [[P3]] vs [[D1]] vs [[G2]])
+    // and whether the source map actually has that key.
+    const debugBadge = debug
+      ? `<span class="copilot-cite-debug${src ? '' : ' copilot-cite-debug-miss'}">[[${idx}]]</span>`
+      : '';
+    return `<button class="copilot-cite-text${typeClass}" data-src="${idx}">${debugBadge}${replaceCites(inner, sources, debug)}</button>`;
   });
 }
 
@@ -109,6 +116,7 @@ export function renderContent(
   content: string,
   isStreaming: boolean,
   sources: Record<string, CiteSource> = {},
+  debug: boolean = false,
 ): string {
   let text = content.replace(/\nSUGGESTIONS:[\s\S]*$/, '').trimEnd();
 
@@ -116,7 +124,7 @@ export function renderContent(
     text = text.replace(CITATION_TAG_RE, '');
   } else {
     text = autoLinkPhrases(text, buildPhraseMap(sources));
-    text = replaceCites(text, sources);
+    text = replaceCites(text, sources, debug);
     text = text.replace(CITATION_TAG_RE, '');
   }
 

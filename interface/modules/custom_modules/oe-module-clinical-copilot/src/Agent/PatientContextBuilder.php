@@ -210,7 +210,7 @@ TEXT;
 
         foreach ($meds as $med) {
             $label = trim("{$med['drug']} {$med['dosage']} {$med['unit']}");
-            $sources[(string) $idx] = [
+            $sources[(string) $idx] = $this->withSourceLink([
                 'type'      => 'medication',
                 'label'     => $label,
                 'fields'    => $this->compactFields([
@@ -221,7 +221,7 @@ TEXT;
                     ['key' => 'Notes',     'value' => $med['note'] ?? ''],
                 ]),
                 'scroll_to' => '#prescriptions_ps_expand',
-            ];
+            ], $med['source_link'] ?? null);
             $lines[] = "[{$idx}] Medication: {$label}" . ($med['interval'] ? " ({$med['interval']})" : '');
             $idx++;
         }
@@ -289,7 +289,7 @@ TEXT;
 
         foreach ($problems as $prob) {
             $label = $prob['title'] . ($prob['icd10'] ? " ({$prob['icd10']})" : '');
-            $sources[(string) $idx] = [
+            $sources[(string) $idx] = $this->withSourceLink([
                 'type'      => 'problem',
                 'label'     => $prob['title'],
                 'fields'    => $this->compactFields([
@@ -298,7 +298,7 @@ TEXT;
                     ['key' => 'Since',     'value' => $prob['since']],
                 ]),
                 'scroll_to' => '#medical_problem_ps_expand',
-            ];
+            ], $prob['source_link'] ?? null);
             $lines[] = "[{$idx}] Problem: {$label}";
             $idx++;
         }
@@ -324,7 +324,7 @@ TEXT;
         }
 
         foreach ($allergies as $allergy) {
-            $sources[(string) $idx] = [
+            $sources[(string) $idx] = $this->withSourceLink([
                 'type'      => 'allergy',
                 'label'     => $allergy['title'],
                 'fields'    => $this->compactFields([
@@ -333,12 +333,32 @@ TEXT;
                     ['key' => 'Severity', 'value' => $allergy['severity'] ?? ''],
                 ]),
                 'scroll_to' => '#allergy_ps_expand',
-            ];
+            ], $allergy['source_link'] ?? null);
             $lines[] = "[{$idx}] Allergy: {$allergy['title']}"
                 . (!empty($allergy['reaction']) ? " → {$allergy['reaction']}" : '');
             $idx++;
         }
         return $idx;
+    }
+
+    /**
+     * Attach a source_link + openemr_doc_id to an entry when the underlying
+     * chart row has provenance back to a source intake/lab document. The
+     * UI's source drawer keys off both — `openemr_doc_id` to build the
+     * `/agent-page.php` image URL, `source_link.bbox` to draw the overlay.
+     *
+     * @param array<string,mixed>      $entry
+     * @param array<string,mixed>|null $link
+     * @return array<string,mixed>
+     */
+    private function withSourceLink(array $entry, ?array $link): array
+    {
+        if (!is_array($link) || empty($link['doc_id'])) {
+            return $entry;
+        }
+        $entry['source_link']    = $link;
+        $entry['openemr_doc_id'] = (int) $link['doc_id'];
+        return $entry;
     }
 
     /**

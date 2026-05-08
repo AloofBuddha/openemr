@@ -961,6 +961,27 @@
 }
 .copilot-modal-row .copilot-modal-category { flex: 1; }
 
+/* ── Debug-only raw citation key badge (?debug=1) ─────────────────────── */
+.copilot-cite-debug {
+  display: inline-block;
+  font-size: 9px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 0 4px;
+  margin-right: 3px;
+  border-radius: 2px;
+  border: 1px solid #d1d5db;
+  vertical-align: super;
+  line-height: 1.3;
+  user-select: none;
+}
+.copilot-cite-debug-miss {
+  color: #b91c1c;
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
 /* ── Provenance line (above each agent answer) ────────────────────────── */
 .copilot-provenance {
   display: flex;

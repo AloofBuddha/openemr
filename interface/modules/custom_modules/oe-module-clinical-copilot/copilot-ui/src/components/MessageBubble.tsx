@@ -80,7 +80,7 @@ export function MessageBubble({
     );
   }
 
-  const html = renderContent(msg.content, !!msg.isStreaming, sources);
+  const html = renderContent(msg.content, !!msg.isStreaming, sources, debugMode);
   const showStatus = msg.isStreaming && !msg.content && statusMessage;
 
   return (
