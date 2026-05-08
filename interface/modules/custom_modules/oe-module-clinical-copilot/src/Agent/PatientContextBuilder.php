@@ -114,9 +114,13 @@ TEXT;
             ] : null,
             'problems'    => $patientData['problems'] ?? [],
             'medications' => array_map(fn(array $m): array => [
-                'drug'   => $m['drug'],
-                'dosage' => trim(($m['dosage'] ?? '') . ' ' . ($m['unit'] ?? '')),
-                'note'   => $m['note'] ?? '',
+                'drug'        => $m['drug'],
+                'dosage'      => trim(($m['dosage'] ?? '') . ' ' . ($m['unit'] ?? '')),
+                'note'        => $m['note'] ?? '',
+                // Preserve provenance back-link so the snapshot card click →
+                // SourceDrawer can render the bbox overlay on the source PDF.
+                // Without this the snapshot dropped source_link silently.
+                'source_link' => $m['source_link'] ?? null,
             ], $patientData['active_medications'] ?? []),
             'allergies' => $patientData['allergies'] ?? [],
             'labs'      => $labs,
