@@ -1,0 +1,35 @@
+[AHA/ACC 2018 §1.1] Four Statin Benefit Groups
+Statin therapy is recommended in four high-risk groups: (1) clinical atherosclerotic cardiovascular disease (ASCVD: prior MI, stable/unstable angina, coronary or other arterial revascularization, stroke/TIA, or peripheral arterial disease of atherosclerotic origin); (2) primary elevation of LDL-C ≥190 mg/dL; (3) diabetes mellitus age 40–75 with LDL-C 70–189 mg/dL; (4) age 40–75 without diabetes or ASCVD but with LDL-C 70–189 mg/dL and 10-year ASCVD risk ≥7.5%. These groups are derived from clinical-trial evidence of net benefit.
+---
+[AHA/ACC 2018 §1.2] ASCVD Risk Calculator and Risk-Enhancing Factors
+The Pooled Cohort Equations estimate 10-year ASCVD risk using age, sex, race, total cholesterol, HDL-C, systolic BP, BP treatment, diabetes, smoking. Risk thresholds: low <5%, borderline 5–7.5%, intermediate 7.5–20%, high ≥20%. Risk-enhancing factors that favor statin therapy at borderline/intermediate risk: family history of premature ASCVD, persistent LDL-C ≥160 mg/dL, chronic kidney disease, metabolic syndrome, chronic inflammatory disease, premature menopause, South Asian ancestry, persistently elevated triglycerides ≥175 mg/dL, hsCRP ≥2.0 mg/L, lipoprotein(a) ≥50 mg/dL, ApoB ≥130 mg/dL, ankle-brachial index <0.9.
+---
+[AHA/ACC 2018 §2.1] Statin Intensity Tiers
+High-intensity statins lower LDL-C by ≥50%: atorvastatin 40–80 mg, rosuvastatin 20–40 mg. Moderate-intensity statins lower LDL-C by 30–49%: atorvastatin 10–20 mg, rosuvastatin 5–10 mg, simvastatin 20–40 mg, pravastatin 40–80 mg, lovastatin 40 mg, fluvastatin XL 80 mg, pitavastatin 1–4 mg. Low-intensity statins lower LDL-C <30% and are reserved for patients who cannot tolerate moderate or high doses.
+---
+[AHA/ACC 2018 §2.2] Statin Intensity by Group
+For clinical ASCVD age ≤75, very-high-risk ASCVD, or LDL-C ≥190: high-intensity statin (target ≥50% LDL reduction). For clinical ASCVD age >75, secondary prevention: high-intensity if tolerated, otherwise moderate-intensity. For diabetes age 40–75 with LDL-C 70–189 and 10-yr risk <7.5%: moderate-intensity statin. For diabetes age 40–75 with multiple risk factors or 10-yr risk ≥7.5%: high-intensity statin. For primary prevention age 40–75 with 10-yr risk 7.5–<20%: moderate-intensity (consider risk-enhancing factors). For 10-yr risk ≥20%: high-intensity statin.
+---
+[AHA/ACC 2018 §3.1] LDL-C Targets — Primary Prevention
+Primary prevention focus is on percentage LDL reduction, not absolute target. Moderate-intensity statin: aim for 30–49% LDL reduction. High-intensity statin: aim for ≥50% LDL reduction. Reassess adherence and intensify therapy if expected reduction not achieved at 4–12 weeks. Repeat lipid panel 4–12 weeks after initiation or dose change, then every 3–12 months as needed for adherence assessment.
+---
+[AHA/ACC 2018 §3.2] LDL-C Targets — Secondary Prevention
+For clinical ASCVD: target LDL-C <70 mg/dL on maximally tolerated statin. If LDL-C remains ≥70 mg/dL despite maximally tolerated statin, add ezetimibe 10 mg daily. If still ≥70 (or ≥55 mg/dL in very-high-risk ASCVD), add a PCSK9 inhibitor (alirocumab or evolocumab). Very-high-risk ASCVD includes prior major event (MI in past year, ischemic stroke, symptomatic PAD) plus ≥1 high-risk condition (diabetes, hypertension, CKD, current smoking, persistent LDL-C ≥100 despite max statin + ezetimibe, history of CHF).
+---
+[AHA/ACC 2018 §4.1] Statin Intolerance and Muscle Symptoms
+True statin myopathy (rhabdomyolysis with CK >10× ULN) is rare (~1 per 10,000 patient-years). Most muscle symptoms attributed to statins are not causally related (nocebo effect demonstrated in SAMSON, GAUSS-3 trials). Approach to statin intolerance: confirm symptoms via stop-and-rechallenge with same or different statin at lower dose; rule out drug interactions (gemfibrozil, cyclosporine), hypothyroidism, vitamin D deficiency. Try alternate-day dosing of long-half-life statins (rosuvastatin, atorvastatin). If true intolerance to multiple statins, switch to ezetimibe ± bempedoic acid ± PCSK9i.
+---
+[AHA/ACC 2018 §4.2] Statin-Diabetes Risk
+Statins increase risk of new-onset diabetes by ~9–13% in primary-prevention populations, primarily in patients with prediabetes or metabolic syndrome. The cardiovascular benefit far exceeds the diabetes risk for patients with statin indications — statins should NOT be withheld due to diabetes risk. Patients on statins should be screened for diabetes per standard ADA guidelines. New diabetes diagnosis on statin therapy is not a reason to stop the statin.
+---
+[AHA/ACC 2018 §5.1] Triglyceride Management
+Triglycerides 175–499 mg/dL: address secondary causes first (diabetes control, alcohol, weight, medications such as thiazides, beta-blockers, atypical antipsychotics, estrogens). Statin is the cornerstone if ASCVD risk warrants. Triglycerides ≥500 mg/dL: add fibrate (fenofibrate preferred over gemfibrozil for lower drug-interaction risk) or icosapent ethyl to reduce pancreatitis risk. Icosapent ethyl 4 g/day is recommended for ASCVD or diabetes with TG 135–499 despite statin (REDUCE-IT trial: 25% relative reduction in major adverse CV events).
+---
+[AHA/ACC 2018 §5.2] Niacin and Combination Lipid Therapy
+Niacin is no longer recommended for cardiovascular risk reduction (HPS2-THRIVE, AIM-HIGH trials showed no benefit and increased adverse events when added to statin). Bile acid sequestrants (cholestyramine, colesevelam) are second-line options that lower LDL-C 15–30% but raise triglycerides — avoid if TG >300. PCSK9 inhibitors (alirocumab, evolocumab) lower LDL by an additional 50–60% on top of statin and reduce ASCVD events; use in ASCVD patients not at goal on statin + ezetimibe.
+---
+[AHA/ACC 2018 §6.1] Lipid Panel Interpretation
+Total cholesterol normal <200 mg/dL, borderline 200–239, high ≥240. LDL-C optimal <100 mg/dL, near-optimal 100–129, borderline 130–159, high 160–189, very high ≥190. HDL-C low <40 mg/dL men or <50 mg/dL women (cardioprotective when high). Triglycerides normal <150 mg/dL, borderline 150–199, high 200–499, very high ≥500. Non-HDL-C (total cholesterol minus HDL) goal is LDL goal + 30 mg/dL. ApoB and lipoprotein(a) provide additional risk stratification when available.
+---
+[AHA/ACC 2018 §7.1] Lifestyle Foundations of Lipid Management
+A heart-healthy diet pattern is foundational regardless of pharmacotherapy. Mediterranean and DASH diets are recommended. Limit saturated fat to <6% of calories, replace with polyunsaturated fats. Limit dietary cholesterol, processed meats, and added sugars. Soluble fiber 5–10 g/day from oats, legumes, and fruits lowers LDL by 5–10%. Plant sterols/stanols 2 g/day lower LDL 5–15%. Aerobic exercise 150 min/week of moderate intensity raises HDL and lowers triglycerides. Weight loss of 5–10% improves all lipid parameters.

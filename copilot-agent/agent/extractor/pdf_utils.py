@@ -91,21 +91,62 @@ def _normalize(token: str) -> str:
     return re.sub(r"[^\w.\-/%]", "", token.lower())
 
 
+def _union_bbox(words: list[PageWord]) -> tuple[float, float, float, float]:
+    """Return (x0, y0, x1, y1) covering every word in ``words``."""
+    return (
+        min(w.x0 for w in words),
+        min(w.y0 for w in words),
+        max(w.x1 for w in words),
+        max(w.y1 for w in words),
+    )
+
+
+def _find_token_run(
+    page_words: list[PageWord],
+    norm_tokens: list[str],
+) -> tuple[int, int] | None:
+    """Find a contiguous run of ``page_words`` whose normalized text equals
+    each token in ``norm_tokens`` in order. Returns (start, end_exclusive)
+    or None. Allows substring match on the first/last token to handle
+    "10mg" rendered as "10" + "mg" or vice versa.
+    """
+    n = len(norm_tokens)
+    if n == 0:
+        return None
+    for i in range(len(page_words) - n + 1):
+        ok = True
+        for j, tok in enumerate(norm_tokens):
+            actual = _normalize(page_words[i + j].text)
+            if actual == tok:
+                continue
+            # Be forgiving on first/last: pdfplumber sometimes glues them.
+            if (j == 0 or j == n - 1) and tok in actual:
+                continue
+            ok = False
+            break
+        if ok:
+            return (i, i + n)
+    return None
+
+
 def find_value_bbox(
     index: PageWordIndex,
     value: str,
     test_name: str | None = None,
 ) -> tuple[int, float, float, float, float, float, float] | None:
-    """Locate the bbox of ``value`` (e.g. "9.2") on the page that also hosts ``test_name``.
+    """Locate the bbox of ``value`` (e.g. "9.2", "10 mg", "Type 2 diabetes")
+    on the page that also hosts ``test_name``.
 
     Returns ``(page, x0, y0, x1, y1, page_width, page_height)`` or None.
-    The match is intentionally greedy: we look for a word whose normalized
-    text equals the normalized value, preferring pages where ``test_name``
-    appears nearby. Fail soft — bbox is decoration, not gating.
+    Multi-token values (e.g. "10 mg") are matched as a contiguous word run
+    and the bbox is the union of those word boxes. Bbox is decoration —
+    failing here returns None and the caller emits a citation without it.
     """
-    norm_value = _normalize(value)
     norm_test = _normalize(test_name or "")
-    if not norm_value:
+    raw_tokens = [t for t in re.split(r"\s+", value.strip()) if t]
+    norm_tokens = [_normalize(t) for t in raw_tokens]
+    norm_tokens = [t for t in norm_tokens if t]
+    if not norm_tokens:
         return None
 
     # Step 1: pages containing the test name (preferred), else all pages.
@@ -118,17 +159,34 @@ def find_value_bbox(
         if with_test:
             candidate_pages = with_test
 
-    # Step 2: find the value word on those pages.
+    # Step 2: contiguous-run match (handles single-token and multi-token).
     for p in candidate_pages:
-        for w in index.pages.get(p, []):
-            if _normalize(w.text) == norm_value:
-                return (p, w.x0, w.y0, w.x1, w.y1, w.page_width, w.page_height)
+        page_words = index.pages.get(p, [])
+        run = _find_token_run(page_words, norm_tokens)
+        if run is not None:
+            start, end = run
+            covered = page_words[start:end]
+            x0, y0, x1, y1 = _union_bbox(covered)
+            first = covered[0]
+            return (p, x0, y0, x1, y1, first.page_width, first.page_height)
 
-    # Step 3: substring fallback — value embedded in a longer word ("9.2%").
-    for p in candidate_pages:
-        for w in index.pages.get(p, []):
-            if norm_value and norm_value in _normalize(w.text):
-                return (p, w.x0, w.y0, w.x1, w.y1, w.page_width, w.page_height)
+    # Step 3: single-token substring fallback (e.g. "9.2" within "9.2%").
+    if len(norm_tokens) == 1:
+        only = norm_tokens[0]
+        for p in candidate_pages:
+            for w in index.pages.get(p, []):
+                if only in _normalize(w.text):
+                    return (p, w.x0, w.y0, w.x1, w.y1, w.page_width, w.page_height)
+
+    # Step 4: first-token-only fallback for multi-token values.
+    # "10 mg" → at least highlight the "10" near the test name. Bbox is
+    # decoration; partial coverage beats no bbox at all.
+    if len(norm_tokens) > 1:
+        first_tok = norm_tokens[0]
+        for p in candidate_pages:
+            for w in index.pages.get(p, []):
+                if _normalize(w.text) == first_tok:
+                    return (p, w.x0, w.y0, w.x1, w.y1, w.page_width, w.page_height)
 
     return None
 

@@ -1,0 +1,38 @@
+[ACC/AHA 2023 §1.1] Atrial Fibrillation Definition and Classification
+Atrial fibrillation (AF) is a supraventricular tachyarrhythmia characterized by chaotic atrial activity and irregular ventricular response. AF is classified as paroxysmal (terminates spontaneously or with intervention within 7 days), persistent (sustained beyond 7 days), long-standing persistent (>12 months continuous), or permanent (joint decision to stop further attempts at restoration of sinus rhythm). Subclinical AF detected only by cardiac monitoring is also clinically significant and increases stroke risk.
+---
+[ACC/AHA 2023 §2.1] CHA2DS2-VASc Stroke Risk Score
+The CHA2DS2-VASc score estimates stroke risk in nonvalvular AF: Congestive heart failure (1), Hypertension (1), Age ≥75 (2), Diabetes (1), prior Stroke/TIA/thromboembolism (2), Vascular disease (1), Age 65–74 (1), Sex category female (1). Maximum score is 9. Annual stroke risk: score 0 = 0.2%, score 1 = 0.6%, score 2 = 2.2%, score 3 = 3.2%, score 4 = 4.8%, score 5 = 7.2%, score 6 = 9.7%, score 7 = 11.2%, score 8 = 10.8%, score 9 = 12.2%.
+---
+[ACC/AHA 2023 §2.2] Anticoagulation Indication Thresholds
+Oral anticoagulation is recommended for men with CHA2DS2-VASc ≥2 and women with CHA2DS2-VASc ≥3 (Class I). For men with CHA2DS2-VASc 1 or women with CHA2DS2-VASc 2, anticoagulation is reasonable after weighing bleeding risk (Class IIa). For score 0 in men or 1 in women (sex alone), no antithrombotic therapy is recommended. Bleeding risk should be assessed using HAS-BLED but a high HAS-BLED score is not a reason to withhold anticoagulation — it is a prompt to address modifiable bleeding risk factors.
+---
+[ACC/AHA 2023 §3.1] DOACs Are First-Line Over Warfarin
+For nonvalvular AF, direct oral anticoagulants (DOACs) — apixaban, rivaroxaban, dabigatran, edoxaban — are recommended over warfarin (Class I) due to similar or superior efficacy and reduced intracranial bleeding. Warfarin remains the agent of choice for patients with mechanical heart valves, moderate-to-severe mitral stenosis, end-stage renal disease (CrCl <15 mL/min) on dialysis, or who cannot afford DOACs. Aspirin alone is NOT recommended for stroke prevention in AF.
+---
+[ACC/AHA 2023 §3.2] Apixaban Dosing
+Standard apixaban dose for AF is 5 mg orally twice daily. Dose reduction to 2.5 mg twice daily is required if any TWO of the following are present: age ≥80 years, body weight ≤60 kg, serum creatinine ≥1.5 mg/dL. Apixaban does not require dose adjustment for moderate renal impairment alone (CrCl 15–29 mL/min, use 2.5 mg BID). Apixaban is contraindicated in severe hepatic impairment (Child-Pugh C). Avoid concurrent strong dual CYP3A4 and P-gp inhibitors (e.g., ketoconazole, ritonavir).
+---
+[ACC/AHA 2023 §3.3] Rivaroxaban and Dabigatran Dosing
+Rivaroxaban: 20 mg once daily with the evening meal for AF; reduce to 15 mg daily if CrCl 15–50 mL/min. Avoid if CrCl <15 mL/min. Dabigatran: 150 mg twice daily; reduce to 75 mg twice daily if CrCl 15–30 mL/min. Avoid in CrCl <15 mL/min. Dabigatran has a specific reversal agent (idarucizumab); apixaban and rivaroxaban are reversed with andexanet alfa. All DOACs should be temporarily held before procedures based on bleeding risk and renal function.
+---
+[ACC/AHA 2023 §4.1] Rate vs Rhythm Control Decision
+Initial strategy choice between rate and rhythm control should consider: symptom burden, AF duration (paroxysmal vs persistent), age, comorbidities, and patient preference. Rate control (target resting HR <110 bpm in asymptomatic, <80 in symptomatic) is appropriate for older patients with persistent AF and minimal symptoms. Rhythm control is preferred for younger patients, those with significant symptoms despite rate control, or with heart failure with reduced EF (EAST-AFNET 4 trial). Both strategies require continued anticoagulation per CHA2DS2-VASc score.
+---
+[ACC/AHA 2023 §4.2] Rate Control Agents
+Beta-blockers (metoprolol, carvedilol, bisoprolol) and non-dihydropyridine calcium channel blockers (diltiazem, verapamil) are first-line for rate control. Avoid non-DHP CCBs in patients with heart failure with reduced EF — they worsen contractility. Digoxin is a second-line agent useful in heart failure or sedentary patients but has narrow therapeutic window; target trough 0.5–0.9 ng/mL. Combination therapy (beta-blocker + CCB or beta-blocker + digoxin) may be needed for patients with persistently elevated rates.
+---
+[ACC/AHA 2023 §4.3] Antiarrhythmic Drugs for Rhythm Control
+Choice of antiarrhythmic depends on structural heart disease: with no structural heart disease, flecainide or propafenone (with AV-nodal blocker) or sotalol; with coronary artery disease, sotalol or dofetilide; with heart failure, dofetilide or amiodarone. Amiodarone is most effective but has significant pulmonary, hepatic, thyroid, and ocular toxicity — reserved for second-line use. Catheter ablation is reasonable as first-line therapy for selected patients with symptomatic paroxysmal AF (Class IIa).
+---
+[ACC/AHA 2023 §5.1] AFib in the Older Adult — Bleeding vs Stroke Tradeoff
+In adults ≥75, both stroke and bleeding risks rise. Anticoagulation still benefits most older patients — absolute stroke reduction outweighs bleeding increase. Apixaban has the most favorable safety profile in this group. Modifiable bleeding risk factors to address: uncontrolled hypertension, concurrent NSAIDs/antiplatelets, excessive alcohol, labile INR (if on warfarin). Falls alone are NOT a contraindication to anticoagulation — modeling shows a patient on anticoagulation would need to fall ~300 times per year for falls to outweigh the benefit.
+---
+[ACC/AHA 2023 §6.1] Anticoagulation and Procedures
+For elective surgery on apixaban: hold 48 hours pre-op for high-bleed-risk procedures (CrCl ≥50 mL/min) or 72 hours (CrCl <50). Hold 24 hours pre-op for low-bleed-risk procedures. Resume 24 hours post-op for low-risk, 48–72 hours for high-risk. Bridging with LMWH is NOT recommended for DOAC patients undergoing temporary holds (BRIDGE trial — increased bleeding without stroke benefit). For warfarin, bridging may be considered only for very high stroke risk (mechanical valve, recent stroke).
+---
+[ACC/AHA 2023 §7.1] Diagnostic Workup for New AF
+Initial workup includes: 12-lead ECG (confirm diagnosis, baseline), TSH (rule out thyroid disease as trigger), CBC and CMP (renal/hepatic function, electrolytes), echocardiogram (assess LV function, atrial size, valve disease, screen for HFpEF), and CHA2DS2-VASc + HAS-BLED scoring. Holter or event monitor if paroxysmal AF suspected but not captured. Sleep study if obesity, snoring, or daytime sleepiness present — sleep apnea is a major reversible AF trigger.
+---
+[ACC/AHA 2023 §7.2] AFib Workup — Reversible Causes
+Address potentially reversible AF triggers: hyperthyroidism, electrolyte abnormalities (low potassium, low magnesium), excessive alcohol intake, untreated obstructive sleep apnea, uncontrolled hypertension, and acute illness (sepsis, pulmonary embolism, pneumonia, acute MI). Treating reversible causes may restore sinus rhythm without antiarrhythmics. Long-term anticoagulation is still indicated based on CHA2DS2-VASc — even if the inciting cause resolves, recurrence is common.

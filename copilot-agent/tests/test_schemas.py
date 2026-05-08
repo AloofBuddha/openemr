@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from schemas.citation import SourceCitation
+from schemas.citation import BBox, SourceCitation
 from schemas.intake import (
     AllergyEntry,
     Demographics,
@@ -181,3 +181,63 @@ def test_intake_extraction_rejects_lab_doc_type() -> None:
             openemr_doc_id=1,
             source_citation=make_citation(source_type="intake_form"),
         )
+
+
+# ---------------------------------------------------------------------------
+# BBox: schema + serialization for the citation-overlay feature
+# ---------------------------------------------------------------------------
+
+
+def test_bbox_roundtrip_inside_citation() -> None:
+    bbox = BBox(
+        page=1,
+        x0=100.0, y0=200.0, x1=300.0, y1=240.0,
+        page_width=612.0, page_height=792.0,
+    )
+    cit = make_citation(bbox=bbox)
+    reloaded = SourceCitation.model_validate(cit.model_dump())
+    assert reloaded.bbox == bbox
+    assert reloaded.bbox is not None
+    assert reloaded.bbox.page == 1
+
+
+def test_bbox_optional_on_citation() -> None:
+    """A citation without bbox is still valid (text path may not locate value)."""
+    cit = make_citation(bbox=None)
+    assert cit.bbox is None
+
+
+# ---------------------------------------------------------------------------
+# PRD field-coverage check: assert every required field exists on the schema
+# ---------------------------------------------------------------------------
+
+
+def test_lab_result_has_all_prd_required_fields() -> None:
+    """PRD §2: lab fields include test name, value, unit, reference range,
+    collection date, abnormal flag, source citation. Guards against
+    accidental rename/removal in a future refactor."""
+    required = {"test_name", "value", "unit", "reference_range",
+                "collection_date", "abnormal_flag", "source_citation"}
+    fields = set(LabResult.model_fields.keys())
+    missing = required - fields
+    assert not missing, f"LabResult missing PRD-required fields: {missing}"
+
+
+def test_intake_extraction_has_all_prd_required_fields() -> None:
+    """PRD §2: intake fields include demographics, chief concern, current
+    medications, allergies, family history, source citation."""
+    required = {"demographics", "chief_concern", "current_medications",
+                "allergies", "family_history", "source_citation"}
+    fields = set(IntakeExtraction.model_fields.keys())
+    missing = required - fields
+    assert not missing, f"IntakeExtraction missing PRD-required fields: {missing}"
+
+
+def test_source_citation_matches_prd_contract() -> None:
+    """PRD §5: citation shape must include source_type, source_id,
+    page_or_section, field_or_chunk_id, quote_or_value."""
+    required = {"source_type", "source_id", "page_or_section",
+                "field_or_chunk_id", "quote_or_value"}
+    fields = set(SourceCitation.model_fields.keys())
+    missing = required - fields
+    assert not missing, f"SourceCitation missing PRD-required fields: {missing}"
