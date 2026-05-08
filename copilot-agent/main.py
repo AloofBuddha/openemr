@@ -220,12 +220,17 @@ async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
             "iteration": 0,
         }
 
-        # Status text reflects what the agent is actually doing on this turn.
-        # Lab/document uploads → "Analyzing document..." not "Searching guidelines"
-        # (the analyze prompt may or may not trigger RAG; the status shouldn't
-        # promise guidelines that the supervisor might not request).
+        # Status text reflects what the agent is most likely doing on this
+        # turn. We don't know yet what the supervisor will route to, so we
+        # use the same keyword heuristic the chip enforcement uses:
+        #   - doc upload → "Analyzing document..."
+        #   - explicit guideline keywords → "Searching clinical guidelines..."
+        #   - else → "Reviewing patient context..."
+        from agent.supervisor import query_wants_guidelines
         if all_doc_ids:
             status_text = "Analyzing document..."
+        elif query_wants_guidelines(req.query):
+            status_text = "Searching clinical guidelines..."
         else:
             status_text = "Reviewing patient context..."
         yield event("status", {"text": status_text})
