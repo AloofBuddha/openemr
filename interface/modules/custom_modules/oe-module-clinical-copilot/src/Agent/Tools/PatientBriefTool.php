@@ -178,55 +178,124 @@ final class PatientBriefTool
     private function fetchActiveMedications(int $patientId): array
     {
         $rows = QueryUtils::fetchRecords(
-            'SELECT id, drug, dosage, quantity, unit, route, `interval`, `note`
-             FROM prescriptions
-             WHERE patient_id = ? AND active = 1
-             ORDER BY drug ASC LIMIT ' . self::MAX_ACTIVE_MEDS,
+            'SELECT p.id, p.drug, p.dosage, p.quantity, p.unit, p.route, p.`interval`, p.`note`,
+                    sl.source_doc_id, sl.page_num, sl.x0, sl.y0, sl.x1, sl.y1,
+                    sl.page_width, sl.page_height, sl.quote
+             FROM prescriptions p
+             LEFT JOIN copilot_source_links sl
+               ON sl.record_type = "medication" AND sl.record_id = p.id
+             WHERE p.patient_id = ? AND p.active = 1
+             ORDER BY p.drug ASC LIMIT ' . self::MAX_ACTIVE_MEDS,
             [$patientId]
         );
-        return array_map(static fn(array $row): array => [
-            'id'       => (int) $row['id'],
-            'drug'     => $row['drug'] ?? '',
-            'dosage'   => $row['dosage'] ?? '',
-            'unit'     => $row['unit'] ?? '',
-            'route'    => $row['route'] ?? '',
-            'interval' => $row['interval'] ?? '',
-            'note'     => $row['note'] ?? '',
-        ], $rows);
+        return array_map(function (array $row): array {
+            $current = trim(($row['drug'] ?? '') . ' ' . ($row['dosage'] ?? ''));
+            return [
+                'id'          => (int) $row['id'],
+                'drug'        => $row['drug'] ?? '',
+                'dosage'      => $row['dosage'] ?? '',
+                'unit'        => $row['unit'] ?? '',
+                'route'       => $row['route'] ?? '',
+                'interval'    => $row['interval'] ?? '',
+                'note'        => $row['note'] ?? '',
+                'source_link' => $this->buildSourceLink($row, $current),
+            ];
+        }, $rows);
     }
 
     /** @return list<array<string,mixed>> */
     private function fetchAllergies(int $patientId): array
     {
         $rows = QueryUtils::fetchRecords(
-            "SELECT title, extrainfo, comments
-             FROM lists
-             WHERE pid = ? AND type = 'allergy' AND activity = 1
-             ORDER BY title ASC",
+            "SELECT l.id, l.title, l.extrainfo, l.comments,
+                    sl.source_doc_id, sl.page_num, sl.x0, sl.y0, sl.x1, sl.y1,
+                    sl.page_width, sl.page_height, sl.quote
+             FROM lists l
+             LEFT JOIN copilot_source_links sl
+               ON sl.record_type = 'allergy' AND sl.record_id = l.id
+             WHERE l.pid = ? AND l.type = 'allergy' AND l.activity = 1
+             ORDER BY l.title ASC",
             [$patientId]
         );
-        return array_map(static fn(array $row): array => [
-            'title'    => $row['title'] ?? '',
-            'reaction' => $row['extrainfo'] ?? '',
-            'severity' => $row['comments'] ?? '',
-        ], $rows);
+        return array_map(function (array $row): array {
+            return [
+                'title'       => $row['title'] ?? '',
+                'reaction'    => $row['extrainfo'] ?? '',
+                'severity'    => $row['comments'] ?? '',
+                'source_link' => $this->buildSourceLink($row, (string) ($row['title'] ?? '')),
+            ];
+        }, $rows);
     }
 
     /** @return list<array<string,mixed>> */
     private function fetchProblems(int $patientId): array
     {
         $rows = QueryUtils::fetchRecords(
-            "SELECT title, diagnosis, begdate
-             FROM lists
-             WHERE pid = ? AND type = 'medical_problem' AND activity = 1
-             ORDER BY title ASC",
+            "SELECT l.id, l.title, l.diagnosis, l.begdate,
+                    sl.source_doc_id, sl.page_num, sl.x0, sl.y0, sl.x1, sl.y1,
+                    sl.page_width, sl.page_height, sl.quote
+             FROM lists l
+             LEFT JOIN copilot_source_links sl
+               ON sl.record_type = 'medical_problem' AND sl.record_id = l.id
+             WHERE l.pid = ? AND l.type = 'medical_problem' AND l.activity = 1
+             ORDER BY l.title ASC",
             [$patientId]
         );
-        return array_map(static fn(array $row): array => [
-            'title' => $row['title'] ?? '',
-            'icd10' => $row['diagnosis'] ?? '',
-            'since' => $row['begdate'] ?? '',
-        ], $rows);
+        return array_map(function (array $row): array {
+            return [
+                'title'       => $row['title'] ?? '',
+                'icd10'       => $row['diagnosis'] ?? '',
+                'since'       => $row['begdate'] ?? '',
+                'source_link' => $this->buildSourceLink($row, (string) ($row['title'] ?? '')),
+            ];
+        }, $rows);
+    }
+
+    /**
+     * Build a source-link sub-array from a JOINed row, dropping silently
+     * when the chart's current value no longer matches the extracted quote.
+     *
+     * Per the demo UX contract: we only link back to a document when it
+     * remains the source of truth. If a clinician has edited the value
+     * since extraction, the link is hidden — "no document source on file"
+     * is the honest answer once the chart has diverged.
+     *
+     * @param array<string,mixed> $row     JOINed row from prescriptions/lists with sl.* columns
+     * @param string              $current Best-effort current chart value to compare against the stored quote
+     */
+    private function buildSourceLink(array $row, string $current): ?array
+    {
+        $docId = (int) ($row['source_doc_id'] ?? 0);
+        if ($docId <= 0) {
+            return null;
+        }
+        $quote = (string) ($row['quote'] ?? '');
+        // Drop link silently when the chart's current value no longer
+        // contains the extracted quote (case-insensitive substring).
+        if ($quote !== '') {
+            $needle = strtolower(trim($quote));
+            $haystack = strtolower(trim($current));
+            if ($needle !== '' && $haystack !== '' && !str_contains($haystack, $needle) && !str_contains($needle, $haystack)) {
+                return null;
+            }
+        }
+        $link = [
+            'doc_id' => $docId,
+            'page'   => (int) ($row['page_num'] ?? 1),
+            'quote'  => $quote,
+        ];
+        if ($row['x0'] !== null && $row['x1'] !== null) {
+            $link['bbox'] = [
+                'page'        => (int) ($row['page_num'] ?? 1),
+                'x0'          => (float) $row['x0'],
+                'y0'          => (float) $row['y0'],
+                'x1'          => (float) $row['x1'],
+                'y1'          => (float) $row['y1'],
+                'page_width'  => (float) $row['page_width'],
+                'page_height' => (float) $row['page_height'],
+            ];
+        }
+        return $link;
     }
 
     /** @return list<array<string,mixed>> */

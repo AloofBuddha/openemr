@@ -137,6 +137,9 @@ echo $body;
 function writeIntakeToOpenEMR(array $ext, int $pid, int $physicianId, string $physicianUser): void
 {
     try {
+        $sourceDocId = (int) ($ext['openemr_doc_id'] ?? 0);
+        $docCitation = is_array($ext['source_citation'] ?? null) ? $ext['source_citation'] : [];
+
         // 1. Find or create today's encounter ─────────────────────────────────
         $chiefConcern = trim((string) ($ext['chief_concern'] ?? ''));
         $encounterReason = $chiefConcern !== ''
@@ -199,6 +202,7 @@ function writeIntakeToOpenEMR(array $ext, int $pid, int $physicianId, string $ph
                      VALUES (NOW(), ?, 'Vitals', ?, ?, ?, 'Default', 1, 0, 'vitals')",
                     [$encId, $vitalsId, $pid, $physicianUser]
                 );
+                upsertSourceLink('vital', $vitalsId, $sourceDocId, $docCitation, $pid);
             }
         }
 
@@ -212,17 +216,21 @@ function writeIntakeToOpenEMR(array $ext, int $pid, int $physicianId, string $ph
                 ($med['dose'] ?? '') . ' ' . ($med['frequency'] ?? '')
             );
             $exists = sqlQuery(
-                "SELECT patient_id FROM prescriptions WHERE patient_id = ? AND drug = ? AND active = 1 LIMIT 1",
+                "SELECT id FROM prescriptions WHERE patient_id = ? AND drug = ? AND active = 1 LIMIT 1",
                 [$pid, $drug]
             );
             if (!$exists) {
-                sqlInsert(
+                $rxId = (int) sqlInsert(
                     "INSERT INTO prescriptions
                         (patient_id, provider_id, encounter, drug, dosage, start_date, active, txDate, uuid)
                      VALUES (?, ?, ?, ?, ?, CURDATE(), 1, CURDATE(), UNHEX(REPLACE(UUID(),'-','')))",
                     [$pid, $physicianId, $encId, $drug, $dosage]
                 );
+            } else {
+                $rxId = (int) $exists['id'];
             }
+            $sc = is_array($med['source_citation'] ?? null) ? $med['source_citation'] : $docCitation;
+            upsertSourceLink('medication', $rxId, $sourceDocId, $sc, $pid);
         }
 
         // 4. Allergies ────────────────────────────────────────────────────────
@@ -237,12 +245,16 @@ function writeIntakeToOpenEMR(array $ext, int $pid, int $physicianId, string $ph
                 [$pid, $title]
             );
             if (!$exists) {
-                sqlInsert(
+                $allergyId = (int) sqlInsert(
                     "INSERT INTO lists (pid, type, title, begdate, activity, groupname, user, date, extrainfo)
                      VALUES (?, 'allergy', ?, CURDATE(), 1, 'Default', ?, NOW(), ?)",
                     [$pid, $title, $physicianUser, $reaction]
                 );
+            } else {
+                $allergyId = (int) $exists['id'];
             }
+            $sc = is_array($allergy['source_citation'] ?? null) ? $allergy['source_citation'] : $docCitation;
+            upsertSourceLink('allergy', $allergyId, $sourceDocId, $sc, $pid);
         }
 
         // 5. Past medical history ─────────────────────────────────────────────
@@ -256,12 +268,18 @@ function writeIntakeToOpenEMR(array $ext, int $pid, int $physicianId, string $ph
                 [$pid, $title]
             );
             if (!$exists) {
-                sqlInsert(
+                $problemId = (int) sqlInsert(
                     "INSERT INTO lists (pid, type, title, begdate, activity, groupname, user, date)
                      VALUES (?, 'medical_problem', ?, CURDATE(), 1, 'Default', ?, NOW())",
                     [$pid, $title, $physicianUser]
                 );
+            } else {
+                $problemId = (int) $exists['id'];
             }
+            // PMH entries are bare strings — fall back to doc-level citation
+            // (no per-entry bbox; the drawer shows the page image without overlay).
+            upsertSourceLink('medical_problem', $problemId, $sourceDocId,
+                array_merge($docCitation, ['quote_or_value' => $title]), $pid);
         }
 
         // 6. Surgical history (stored as lists type='surgery') ────────────────
@@ -275,12 +293,16 @@ function writeIntakeToOpenEMR(array $ext, int $pid, int $physicianId, string $ph
                 [$pid, $title]
             );
             if (!$exists) {
-                sqlInsert(
+                $surgeryId = (int) sqlInsert(
                     "INSERT INTO lists (pid, type, title, begdate, activity, groupname, user, date)
                      VALUES (?, 'surgery', ?, CURDATE(), 1, 'Default', ?, NOW())",
                     [$pid, $title, $physicianUser]
                 );
+            } else {
+                $surgeryId = (int) $exists['id'];
             }
+            upsertSourceLink('surgery', $surgeryId, $sourceDocId,
+                array_merge($docCitation, ['quote_or_value' => $title]), $pid);
         }
 
         // 7. Social + family history (history_data) ───────────────────────────
@@ -344,6 +366,53 @@ function parseBP(string $bp): array
         trim($parts[0] ?? ''),
         trim($parts[1] ?? ''),
     ];
+}
+
+/**
+ * Persist a chart-row → source-document back-link with bbox + verbatim quote.
+ *
+ * Idempotent on (record_type, record_id) so re-running intake processing
+ * never duplicates. Silently no-ops when source_doc_id is missing — the
+ * link is decorative; chart writes always succeed without it.
+ */
+function upsertSourceLink(
+    string $recordType,
+    int $recordId,
+    int $sourceDocId,
+    array $sourceCitation,
+    int $patientId,
+): void {
+    if ($sourceDocId <= 0 || $recordId <= 0) {
+        return;
+    }
+    $bbox  = is_array($sourceCitation['bbox'] ?? null) ? $sourceCitation['bbox'] : [];
+    $page  = (int) ($bbox['page'] ?? 1);
+    $quote = (string) ($sourceCitation['quote_or_value'] ?? '');
+    try {
+        sqlStatement(
+            "INSERT INTO copilot_source_links
+                (patient_id, record_type, record_id, source_doc_id, page_num,
+                 x0, y0, x1, y1, page_width, page_height, quote)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                 source_doc_id = VALUES(source_doc_id),
+                 page_num      = VALUES(page_num),
+                 x0 = VALUES(x0), y0 = VALUES(y0),
+                 x1 = VALUES(x1), y1 = VALUES(y1),
+                 page_width    = VALUES(page_width),
+                 page_height   = VALUES(page_height),
+                 quote         = VALUES(quote)",
+            [
+                $patientId, $recordType, $recordId, $sourceDocId, $page,
+                $bbox['x0'] ?? null, $bbox['y0'] ?? null,
+                $bbox['x1'] ?? null, $bbox['y1'] ?? null,
+                $bbox['page_width'] ?? null, $bbox['page_height'] ?? null,
+                $quote,
+            ]
+        );
+    } catch (\Throwable $e) {
+        error_log("[CopilotIntakeProcess] source-link upsert failed for {$recordType}#{$recordId}: " . $e->getMessage());
+    }
 }
 
 /** Split family history list into father-side and mother-side strings. */

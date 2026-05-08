@@ -97,6 +97,8 @@ export function buildNumberedPatientContext(snap: Snapshot | null): NumberedCont
         { key: 'Since',  value: p.since },
       ].filter(f => f.value),
       scroll_to: '#medical_problem_ps_expand',
+      source_link: p.source_link ?? null,
+      openemr_doc_id: p.source_link?.doc_id,
     };
     lines.push(`[${idx}] Problem: ${p.title}${p.icd10 ? ` (${p.icd10})` : ''}`);
     idx++;
@@ -112,6 +114,8 @@ export function buildNumberedPatientContext(snap: Snapshot | null): NumberedCont
         { key: 'Dose', value: m.dosage },
       ].filter(f => f.value),
       scroll_to: '#prescriptions_ps_expand',
+      source_link: m.source_link ?? null,
+      openemr_doc_id: m.source_link?.doc_id,
     };
     lines.push(`[${idx}] Medication: ${label}`);
     idx++;
@@ -126,6 +130,8 @@ export function buildNumberedPatientContext(snap: Snapshot | null): NumberedCont
         { key: 'Severity', value: a.severity },
       ].filter(f => f.value),
       scroll_to: '#allergy_ps_expand',
+      source_link: a.source_link ?? null,
+      openemr_doc_id: a.source_link?.doc_id,
     };
     lines.push(`[${idx}] Allergy: ${a.title}${a.reaction ? ` → ${a.reaction}` : ''}`);
     idx++;

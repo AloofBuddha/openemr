@@ -22,6 +22,23 @@ export interface ExtractedResult {
   quote: string;          // verbatim text from the source PDF
   bbox?: BBox | null;     // optional — present when pdfplumber matched the value
 }
+/**
+ * Provenance back-link from a chart row (medication, allergy, problem) to
+ * the page region of the source intake/lab PDF it came from. Populated by
+ * the PHP brief tool via the copilot_source_links table; consumed by the
+ * UI to render the same yellow-bbox overlay we use for [[DN]] citations.
+ *
+ * `bbox` is optional because PMH / surgical-history strings carry only a
+ * doc-level citation (no per-field coordinates). In that case the drawer
+ * still shows the source PDF page, just without a highlighted region.
+ */
+export interface SourceLink {
+  doc_id: number;
+  page: number;
+  quote?: string;
+  bbox?: BBox | null;
+}
+
 export interface CiteSource {
   type: string;
   label: string;
@@ -30,13 +47,14 @@ export interface CiteSource {
   doc_url?: string;
   openemr_doc_id?: number;  // present on document-type citations; used for bbox page-image URL
   extracted_results?: ExtractedResult[];
+  source_link?: SourceLink | null;  // chart-row back-link to its source intake/lab document
 }
 
 export interface SnapshotPatient { name: string; age: string; sex: string; dob: string; }
 export interface SnapshotAppt    { time: string; reason: string; }
-export interface SnapshotProblem { title: string; icd10: string; since: string; }
-export interface SnapshotMed     { drug: string; dosage: string; note: string; }
-export interface SnapshotAllergy { title: string; reaction: string; severity: string; }
+export interface SnapshotProblem { title: string; icd10: string; since: string; source_link?: SourceLink | null; }
+export interface SnapshotMed     { drug: string; dosage: string; note: string; source_link?: SourceLink | null; }
+export interface SnapshotAllergy { title: string; reaction: string; severity: string; source_link?: SourceLink | null; }
 export interface SnapshotLab     { test: string; value: string; units: string; abnormal: string; date: string; }
 export interface SnapshotDoc     { id: number; name: string; date: string; }
 export interface SnapshotVitals  {

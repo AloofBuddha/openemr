@@ -29,4 +29,28 @@ CREATE TABLE IF NOT EXISTS `copilot_audit_log` (
     `created_at`     DATETIME NOT NULL,
     INDEX `idx_physician_created` (`physician_id`, `created_at`),
     INDEX `idx_patient_created` (`patient_uuid`(36), `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Provenance back-links: every chart row written by intake-process.php gets
+-- one row here pointing at the source document + the bbox of the verbatim
+-- text the extractor pulled from that page. Powers the "yellow box on the
+-- intake PDF" UX for [[PN]] citations referring to chart facts.
+CREATE TABLE IF NOT EXISTS `copilot_source_links` (
+    `id`             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `patient_id`     INT NOT NULL,
+    `record_type`    VARCHAR(32) NOT NULL,    -- 'medication' | 'allergy' | 'medical_problem' | 'surgery' | 'vital' | 'social' | 'family'
+    `record_id`      INT NOT NULL,            -- prescriptions.id, lists.id, form_vitals.id, history_data.id
+    `source_doc_id`  INT NOT NULL,            -- documents.id of the originating intake/lab PDF
+    `page_num`       INT NOT NULL DEFAULT 1,
+    `x0`             FLOAT DEFAULT NULL,
+    `y0`             FLOAT DEFAULT NULL,
+    `x1`             FLOAT DEFAULT NULL,
+    `y1`             FLOAT DEFAULT NULL,
+    `page_width`     FLOAT DEFAULT NULL,
+    `page_height`    FLOAT DEFAULT NULL,
+    `quote`          TEXT,                    -- verbatim text from the source, for staleness checks
+    `created_at`     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `uq_record` (`record_type`, `record_id`),
+    INDEX `idx_patient` (`patient_id`),
+    INDEX `idx_source_doc` (`source_doc_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4

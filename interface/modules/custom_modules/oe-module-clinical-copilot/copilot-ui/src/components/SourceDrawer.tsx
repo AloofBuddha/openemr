@@ -155,19 +155,42 @@ export function SourceDrawer({ source, onClose, width, webRoot, docId, citedText
       </div>
       <div className="copilot-drawer-body">
         {(() => {
+          // Two paths into the bbox panel:
+          // 1) [[DN]] clicks: source has extracted_results — pick the one
+          //    whose value matches the cited phrase.
+          // 2) [[PN]] clicks on chart rows that came from an intake doc:
+          //    source has a source_link populated by the brief tool's
+          //    JOIN against copilot_source_links.
           const featured = _matchResult(source.extracted_results, citedText);
-          if (!featured?.bbox || !webRoot || !docId) return null;
-          const imgSrc = `${webRoot}/agent-page.php?doc_id=${docId}&page=${featured.bbox.page}`;
+          const linkBbox = source.source_link?.bbox ?? null;
+          const linkDocId = source.source_link?.doc_id;
+
+          let bbox = featured?.bbox ?? linkBbox ?? null;
+          let activeDocId = featured?.bbox ? docId : (linkDocId ?? docId);
+          let label = featured?.label ?? source.label;
+          let value = featured?.value ?? '';
+          let pageNum = bbox?.page ?? source.source_link?.page ?? null;
+
+          // No bbox but we DO have a doc reference (e.g. PMH entry: doc-level
+          // link, no per-field coords). Still render the page image so the
+          // physician can scan for the value visually.
+          const hasAnyDocRef = bbox || (linkDocId && pageNum);
+
+          if (!hasAnyDocRef || !webRoot || !activeDocId) return null;
+          const imgSrc = `${webRoot}/agent-page.php?doc_id=${activeDocId}&page=${pageNum}`;
           return (
             <div className="copilot-bbox-section">
               <p className="copilot-drawer-section-label">
-                {citedText ? <>Source · &ldquo;{citedText}&rdquo; · page {featured.bbox.page}</>
-                           : <>Source · page {featured.bbox.page}</>}
+                {citedText ? <>Source · &ldquo;{citedText}&rdquo; · page {pageNum}</>
+                           : <>Source · page {pageNum}</>}
               </p>
-              <PageOverlay bbox={featured.bbox} imgSrc={imgSrc} />
+              {bbox
+                ? <PageOverlay bbox={bbox} imgSrc={imgSrc} />
+                : <div className="copilot-bbox-page"><img src={imgSrc} alt={`Page ${pageNum}`} /></div>}
               <p className="copilot-bbox-caption">
-                Yellow box: <strong>{featured.label}</strong>{' '}
-                {featured.value && <>= <code>{featured.value}</code></>}
+                {bbox
+                  ? <>Yellow box: <strong>{label}</strong>{value && <> = <code>{value}</code></>}</>
+                  : <>Source page (no field-level coordinates for this entry)</>}
               </p>
             </div>
           );

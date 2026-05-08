@@ -18,9 +18,14 @@ from agent.extractor.claude_calls import (
     parse_json_response,
 )
 from agent.extractor.confidence import threshold_warnings_intake
-from agent.extractor.pdf_utils import pdf_to_b64_images
+from agent.extractor.pdf_utils import (
+    PageWordIndex,
+    build_word_index,
+    find_value_bbox,
+    pdf_to_b64_images,
+)
 from agent.extractor.prompts import INTAKE_TEXT_PROMPT, INTAKE_VISION_PROMPT
-from schemas.citation import SourceCitation
+from schemas.citation import BBox, SourceCitation
 from schemas.intake import (
     AllergyEntry,
     Demographics,
@@ -39,19 +44,33 @@ def _entry_citation(
     page_label: str,
     field_id: str,
     fallback_quote: str,
+    word_index: PageWordIndex | None = None,
+    locator: str | None = None,
 ) -> SourceCitation:
     """Build a SourceCitation for one medication/allergy entry.
 
     Uses Claude's ``source_quote`` if provided, otherwise falls back to the
-    entry's own name/allergen as the quote.
+    entry's own name/allergen as the quote. When ``word_index`` is supplied
+    (typed PDFs only), look up the bbox of ``locator`` (e.g. medication
+    name) so the source drawer can highlight the region of the page.
     """
     quote = str(raw.get("source_quote") or fallback_quote)
+    bbox: BBox | None = None
+    page_label_resolved = page_label
+    if word_index is not None and locator:
+        located = find_value_bbox(word_index, locator)
+        if located is not None:
+            page_num, x0, y0, x1, y1, pw, ph = located
+            bbox = BBox(page=page_num, x0=x0, y0=y0, x1=x1, y1=y1,
+                        page_width=pw, page_height=ph)
+            page_label_resolved = f"page {page_num}"
     return SourceCitation(
         source_type="intake_form",
         source_id=str(openemr_doc_id),
-        page_or_section=page_label,
+        page_or_section=page_label_resolved,
         field_or_chunk_id=field_id,
         quote_or_value=quote,
+        bbox=bbox,
     )
 
 
@@ -59,6 +78,7 @@ def _build_medications(
     raw_meds: list[dict[str, Any]],
     openemr_doc_id: int,
     page_label: str,
+    word_index: PageWordIndex | None = None,
 ) -> list[MedicationEntry]:
     return [
         MedicationEntry(
@@ -67,7 +87,8 @@ def _build_medications(
             frequency=m.get("frequency"),
             confidence=float(m.get("confidence", 1.0)),
             source_citation=_entry_citation(
-                m, openemr_doc_id, page_label, f"medication.{i}", fallback_quote=m["name"]
+                m, openemr_doc_id, page_label, f"medication.{i}",
+                fallback_quote=m["name"], word_index=word_index, locator=m["name"],
             ),
         )
         for i, m in enumerate(raw_meds)
@@ -79,6 +100,7 @@ def _build_allergies(
     raw_allergies: list[dict[str, Any]],
     openemr_doc_id: int,
     page_label: str,
+    word_index: PageWordIndex | None = None,
 ) -> list[AllergyEntry]:
     return [
         AllergyEntry(
@@ -86,7 +108,8 @@ def _build_allergies(
             reaction=a.get("reaction"),
             confidence=float(a.get("confidence", 1.0)),
             source_citation=_entry_citation(
-                a, openemr_doc_id, page_label, f"allergy.{i}", fallback_quote=a["allergen"]
+                a, openemr_doc_id, page_label, f"allergy.{i}",
+                fallback_quote=a["allergen"], word_index=word_index, locator=a["allergen"],
             ),
         )
         for i, a in enumerate(raw_allergies)
@@ -151,6 +174,7 @@ async def extract_intake_text(
     patient_id: int,
     openemr_doc_id: int,
     anthropic_client: anthropic.AsyncAnthropic,
+    pdf_bytes: bytes | None = None,
 ) -> IntakeExtraction:
     raw = await call_claude_text(INTAKE_TEXT_PROMPT.format(text=text), anthropic_client)
     data = parse_json_response(raw)
@@ -158,6 +182,7 @@ async def extract_intake_text(
     threshold_warns = threshold_warnings_intake(data)
     warnings = list(data.get("extraction_warnings", [])) + threshold_warns
 
+    word_index = build_word_index(pdf_bytes) if pdf_bytes else None
     page_label = "text extraction"
     return IntakeExtraction(
         doc_type="intake_form",
@@ -166,9 +191,11 @@ async def extract_intake_text(
         demographics=_build_demographics(data.get("demographics") or {}),
         chief_concern=data.get("chief_concern"),
         current_medications=_build_medications(
-            data.get("current_medications", []), openemr_doc_id, page_label
+            data.get("current_medications", []), openemr_doc_id, page_label, word_index
         ),
-        allergies=_build_allergies(data.get("allergies", []), openemr_doc_id, page_label),
+        allergies=_build_allergies(
+            data.get("allergies", []), openemr_doc_id, page_label, word_index
+        ),
         vitals=_build_vitals(data.get("vitals")),
         past_medical_history=data.get("past_medical_history", []),
         surgical_history=data.get("surgical_history", []),
@@ -184,7 +211,15 @@ async def extract_intake_vision_pages(
     patient_id: int,
     openemr_doc_id: int,
     anthropic_client: anthropic.AsyncAnthropic,
+    pdf_bytes: bytes | None = None,
 ) -> IntakeExtraction:
+    """Vision intake path with optional bbox capture.
+
+    Vision API doesn't return pixel coordinates, so when the original PDF
+    has extractable text (typed forms), we run pdfplumber on the bytes as
+    a second pass to locate each extracted value. Handwritten / scanned
+    intake forms produce no word index and skip the bbox step.
+    """
     fallback_quote = ""
     if not page_images:
         return IntakeExtraction(
@@ -238,6 +273,7 @@ async def extract_intake_vision_pages(
             logger.exception("Vision intake extraction failed for page %d", page_num)
             all_warnings.append(f"Vision extraction failed for page {page_num}")
 
+    word_index = build_word_index(pdf_bytes) if pdf_bytes else None
     page_label = f"page 1 of {len(page_images)}"
     return IntakeExtraction(
         doc_type="intake_form",
@@ -246,9 +282,11 @@ async def extract_intake_vision_pages(
         demographics=_build_demographics(merged.get("demographics") or {}),
         chief_concern=merged.get("chief_concern"),
         current_medications=_build_medications(
-            merged["current_medications"], openemr_doc_id, page_label
+            merged["current_medications"], openemr_doc_id, page_label, word_index
         ),
-        allergies=_build_allergies(merged["allergies"], openemr_doc_id, page_label),
+        allergies=_build_allergies(
+            merged["allergies"], openemr_doc_id, page_label, word_index
+        ),
         vitals=_build_vitals(merged.get("vitals")),
         past_medical_history=merged["past_medical_history"],
         surgical_history=merged["surgical_history"],
@@ -266,5 +304,9 @@ async def extract_intake_vision(
     anthropic_client: anthropic.AsyncAnthropic,
 ) -> IntakeExtraction:
     return await extract_intake_vision_pages(
-        pdf_to_b64_images(pdf_bytes), patient_id, openemr_doc_id, anthropic_client
+        pdf_to_b64_images(pdf_bytes),
+        patient_id,
+        openemr_doc_id,
+        anthropic_client,
+        pdf_bytes=pdf_bytes,
     )
