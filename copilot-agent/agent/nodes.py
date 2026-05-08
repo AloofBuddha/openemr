@@ -27,7 +27,6 @@ from agent.supervisor import (
     SupervisorDecision,
     _estimate_cost,
     make_supervisor_decision,
-    query_wants_guidelines,
 )
 from rag.indexer import GuidelineChunk
 from rag.retriever import retrieve
@@ -122,16 +121,15 @@ def route_from_supervisor(state: AgentState) -> str:
     every iteration — we'd loop on intake_extractor until MAX_ITERATIONS and
     never call evidence_retriever.
 
-    Also vetoes evidence_retriever when the query has no guideline-related
-    keywords. Lab summarisation queries don't need a 5-section RAG round-trip,
-    and the cost/latency wasn't paying off when the model didn't even cite
-    the chunks. The supervisor's intent is informative; this veto is the
-    last word.
+    Trusts the supervisor's intent classification; doesn't second-guess
+    its evidence_retriever decision. An earlier keyword-based veto was
+    too aggressive — it silenced guideline citations for follow-ups like
+    "what about her A1c?" where the supervisor correctly wanted RAG but
+    the query happened to lack a hardcoded keyword.
     """
     decision_data = state.get("_supervisor_decision", {})
     next_workers: list[str] = decision_data.get("next_workers", [])
     intent: list[str] = decision_data.get("intent", [])
-    query = state.get("query", "")
 
     valid_nodes = {"intake_extractor", "evidence_retriever", "answer_assembler"}
 
@@ -144,17 +142,12 @@ def route_from_supervisor(state: AgentState) -> str:
 
     extraction_done = len(extracted_docs) >= len(doc_ids)
     retrieval_done = len(guideline_chunks) > 0
-    wants_guidelines = query_wants_guidelines(query)
 
     for worker in next_workers:
         if worker == "intake_extractor" and extraction_done:
             continue
-        if worker == "evidence_retriever":
-            if retrieval_done:
-                continue
-            if not wants_guidelines:
-                # Skip RAG when the query doesn't ask for guideline evidence.
-                continue
+        if worker == "evidence_retriever" and retrieval_done:
+            continue
         if worker in valid_nodes:
             return worker
 

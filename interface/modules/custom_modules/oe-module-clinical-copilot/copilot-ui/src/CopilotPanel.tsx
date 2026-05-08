@@ -287,10 +287,12 @@ export function CopilotPanel({
           // Dismiss the modal so the user sees the copilot panel + extraction summary.
           setUploadOpen(false);
 
-          // After a lab upload, the chart now has new procedure_result rows;
-          // schedule a reload of the OpenEMR cards once the agent analysis
-          // streaming completes (handled below).
-          sessionStorage.setItem(`copilot_reload_after_done_${pid}`, '1');
+          // (Previously triggered a page reload after the lab analysis
+          // streamed in to refresh OpenEMR's sidebar cards. The in-app
+          // snapshot already updates via addLabsToSnapshot above, and the
+          // mid-stream reload was disruptive while the user was reading
+          // the analysis. Skipping the reload — sidebar refreshes on next
+          // natural navigation.)
 
           // Auto-trigger agent analysis on the lab.
           setTimeout(() => {

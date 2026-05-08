@@ -104,21 +104,3 @@ def test_route_falls_through_to_answer_when_all_work_done() -> None:
     assert route_from_supervisor(state) == "answer_assembler"
 
 
-def test_route_vetoes_evidence_retriever_when_query_has_no_guideline_keywords() -> None:
-    """Lab-summary queries don't pay the RAG round-trip; the veto kicks in
-    even when the supervisor proposed evidence_retriever."""
-    state = _state_with_decision(
-        intent=["needs_evidence", "can_answer"],
-        next_workers=["evidence_retriever"],
-        query="Summarise the uploaded lab",
-    )
-    assert route_from_supervisor(state) == "answer_assembler"
-
-
-def test_route_allows_evidence_retriever_when_query_mentions_guidelines() -> None:
-    state = _state_with_decision(
-        intent=["needs_evidence"],
-        next_workers=["evidence_retriever"],
-        query="What does ACC/AHA recommend for this patient's BP?",
-    )
-    assert route_from_supervisor(state) == "evidence_retriever"
