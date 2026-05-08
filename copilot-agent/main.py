@@ -220,7 +220,15 @@ async def _query_stream(req: QueryRequest, state) -> AsyncIterator[str]:
             "iteration": 0,
         }
 
-        yield event("status", {"text": "Searching clinical guidelines..."})
+        # Status text reflects what the agent is actually doing on this turn.
+        # Lab/document uploads → "Analyzing document..." not "Searching guidelines"
+        # (the analyze prompt may or may not trigger RAG; the status shouldn't
+        # promise guidelines that the supervisor might not request).
+        if all_doc_ids:
+            status_text = "Analyzing document..."
+        else:
+            status_text = "Reviewing patient context..."
+        yield event("status", {"text": status_text})
 
         result = await state.graph.ainvoke(initial_state)
         answer = result.get("answer") or "I was unable to generate an answer."

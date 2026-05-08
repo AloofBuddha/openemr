@@ -27,6 +27,7 @@ from agent.supervisor import (
     SupervisorDecision,
     _estimate_cost,
     make_supervisor_decision,
+    query_wants_guidelines,
 )
 from rag.indexer import GuidelineChunk
 from rag.retriever import retrieve

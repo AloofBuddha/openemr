@@ -436,14 +436,16 @@ export function useCopilotChat(
     startupRanRef.current = true;
 
     (async () => {
-      // Process any pre-uploaded intake forms (front desk path) and chain
-      // straight into the brief. No page reload — keeps the synthetic
-      // intake-summary message visible in chat (was being dropped by the
-      // reload now that localStorage caching is disabled). The OpenEMR
-      // sidebar cards stay stale until the next natural navigation, but
-      // the in-app snapshot panel updates via addIntakeToSnapshot.
-      await checkAndProcessIntakes();
-      send('Brief me on this patient.', true, [], false);
+      // Process any pre-uploaded intake forms (front desk path).
+      // If an intake was processed: the synthetic intake-summary message
+      // already shows what was extracted — that IS the welcome content
+      // for a new-patient chart, no need to layer a generic brief on top.
+      // The doctor reads the intake, then asks follow-ups.
+      // If no intake: fire the brief to summarise the existing chart.
+      const { count } = await checkAndProcessIntakes();
+      if (count === 0) {
+        send('Brief me on this patient.', true, [], false);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -549,17 +551,13 @@ export function useCopilotChat(
     setNeedsSave(true);
   }, []);
 
-  // In-session intake upload: writeback + brief regen, no page reload.
-  //   1. process-pending → PHP writeIntakeToOpenEMR → meds/allergies/problems
-  //      land in OpenEMR + copilot_source_links populated with bbox refs.
-  //   2. Send a fresh brief query — the brief tool reads the freshly-
-  //      populated chart and the synthetic intake-summary message stays
-  //      above the brief in the chat.
+  // In-session intake upload: writeback only, no auto-brief and no page
+  // reload. The synthetic intake-summary message added by
+  // checkAndProcessIntakes is the visible result — same as the chart-load
+  // path. Doctor reads the extraction summary, then asks follow-ups.
   const processNewIntake = useCallback(async (): Promise<void> => {
-    const { count } = await checkAndProcessIntakes();
-    if (count === 0) return;
-    send('Brief me on this patient.', true, [], false);
-  }, [checkAndProcessIntakes, send]);
+    await checkAndProcessIntakes();
+  }, [checkAndProcessIntakes]);
 
   return {
     messages,
