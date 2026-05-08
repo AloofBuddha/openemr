@@ -120,17 +120,6 @@ export interface RoutingStep {
   model?: string;
 }
 
-// One step in the per-message agent-progress trace.
-//   text   — what the agent was doing ("Searching clinical guidelines...")
-//   ms     — how long that step took (filled in when the next step starts
-//            or the run ends; 0 while the step is still running)
-//   running — true for the most recent step until the next one fires
-export interface StatusStep {
-  text: string;
-  ms: number;
-  running: boolean;
-}
-
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -146,11 +135,6 @@ export interface Message {
   // and excluded from the history sent to the LLM, so the BRIEF prompt still
   // sees a single user turn and emits the 3-chip structure.
   kind?: 'intake_summary';
-  // Per-message progress trace — accumulates as supervisor decisions stream
-  // in, and persists after the final answer arrives so the user can see what
-  // the agent did to produce it.
-  statusTrace?: StatusStep[];
-  statusStepStartedAt?: number;  // epoch ms when the latest step began
 }
 
 export interface CachedConvo {

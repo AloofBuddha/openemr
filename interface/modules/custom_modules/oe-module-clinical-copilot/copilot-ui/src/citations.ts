@@ -43,14 +43,23 @@ export function replaceCites(
 ): string {
   return text.replace(CITATION_PAIR_RE, (_, idx, inner) => {
     const src = sources[idx];
-    const typeClass = src ? ` copilot-cite-${src.type}` : '';
+    // Failsafe: if the source map has no entry for this key, the click
+    // would do nothing — the drawer's lookup returns undefined. Render
+    // plain text instead of a misleading underlined-but-dead link.
+    // (Debug mode keeps the badge so engineers can spot the miss.)
+    if (!src) {
+      const debugBadge = debug
+        ? `<span class="copilot-cite-debug copilot-cite-debug-miss">[[${idx}]]</span>`
+        : '';
+      return `${debugBadge}${replaceCites(inner, sources, debug)}`;
+    }
+    const typeClass = ` copilot-cite-${src.type}`;
     const prov = _provenanceOf(src);
     const provClass = prov ? ` copilot-cite-prov-${prov}` : '';
     // In debug mode, prefix the citation with its raw key so engineers can
-    // tell at a glance which namespace fired ([[3]] vs [[P3]] vs [[D1]] vs [[G2]])
-    // and whether the source map actually has that key.
+    // tell at a glance which namespace fired ([[3]] vs [[P3]] vs [[D1]] vs [[G2]]).
     const debugBadge = debug
-      ? `<span class="copilot-cite-debug${src ? '' : ' copilot-cite-debug-miss'}">[[${idx}]]</span>`
+      ? `<span class="copilot-cite-debug">[[${idx}]]</span>`
       : '';
     return `<button class="copilot-cite-text${typeClass}${provClass}" data-src="${idx}">${debugBadge}${replaceCites(inner, sources, debug)}</button>`;
   });

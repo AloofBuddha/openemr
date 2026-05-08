@@ -52,7 +52,7 @@ final class PatientContextBuilder
         $idx = $this->appendLabs($patientData['recent_labs'] ?? [], $sources, $lines, $idx);
         $idx = $this->appendProblems($patientData['problems'] ?? [], $sources, $lines, $idx);
         $idx = $this->appendAllergies($patientData['allergies'] ?? [], $sources, $lines, $idx);
-        $idx = $this->appendDocuments($patientData['documents'] ?? [], $lines, $idx);
+        $idx = $this->appendDocuments($patientData['documents'] ?? [], $sources, $lines, $idx);
 
         $demo    = $patientData['demographics'];
         $name    = $demo['name'] ?? 'Unknown';
@@ -367,13 +367,31 @@ TEXT;
 
     /**
      * @param list<array<string,mixed>> $documents
+     * @param array<string,mixed> $sources
      * @param list<string> $lines
      */
-    private function appendDocuments(array $documents, array &$lines, int $idx): int
+    private function appendDocuments(array $documents, array &$sources, array &$lines, int $idx): int
     {
         foreach ($documents as $doc) {
-            $lines[] = "[{$idx}] Document on file: {$doc['name']}"
-                . (!empty($doc['date']) ? " ({$doc['date']})" : '');
+            $name = (string) ($doc['name'] ?? 'Document');
+            $date = (string) ($doc['date'] ?? '');
+            $docId = (int) ($doc['id'] ?? 0);
+
+            // Each document line in the LLM prompt needs a matching entry
+            // in $sources, otherwise the LLM cites [[N]] and the UI renders
+            // a clickable button that lookups undefined and does nothing.
+            $sources[(string) $idx] = [
+                'type'   => 'document',
+                'label'  => $name,
+                'fields' => $this->compactFields([
+                    ['key' => 'Filename', 'value' => $name],
+                    ['key' => 'Date',     'value' => $date],
+                ]),
+                'openemr_doc_id' => $docId > 0 ? $docId : null,
+            ];
+
+            $lines[] = "[{$idx}] Document on file: {$name}"
+                . ($date !== '' ? " ({$date})" : '');
             $idx++;
         }
         return $idx;

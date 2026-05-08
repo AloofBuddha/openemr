@@ -40,13 +40,13 @@ describe('replaceCites', () => {
     expect(out).toContain('data-src="P4"');
   });
 
-  it('omits both type and provenance classes when the source key is unknown', () => {
-    const out = replaceCites('[[P9]]Mystery[[/P9]]', {});
-    expect(out).toContain('data-src="P9"');
-    // Base class still applied; type and provenance classes are absent.
-    expect(out).toContain('copilot-cite-text');
-    expect(out).toMatch(/class="copilot-cite-text"/);
-    expect(out).not.toMatch(/copilot-cite-prov-/);
+  it('renders plain text (no button) when the source key is unknown', () => {
+    // Failsafe: the click handler can't open a drawer for a missing
+    // source, so we don't fake a clickable link.
+    const out = replaceCites('Patient mentioned [[P9]]Mystery[[/P9]] today.', {});
+    expect(out).toContain('Mystery');
+    expect(out).not.toContain('data-src="P9"');
+    expect(out).not.toContain('<button');
   });
 
   it('returns text unchanged when no citation markers are present', () => {
