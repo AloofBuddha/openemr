@@ -38,9 +38,16 @@ export function CopilotPanel({
 
   const wrapRef        = useRef<HTMLDivElement>(null);
   const inputRef       = useRef<HTMLInputElement>(null);
+  const messagesRef    = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Stick-to-bottom toggle: true while the user is at (or near) the latest
+  // message, false once they scroll up to read history. Auto-scroll fires
+  // only while true, so streaming text never yanks the page out from under
+  // a doctor mid-read. Refocusing the input snaps back to the latest.
+  const stickToBottomRef = useRef(true);
   const dragStartX     = useRef(0);
   const dragStartWidth = useRef(DRAWER_DEFAULT_WIDTH);
+  const STICK_THRESHOLD_PX = 60;
 
   const isBusy = status === 'loading' || status === 'streaming';
   const isWide = containerWidth >= WIDE_BREAKPOINT;
@@ -56,10 +63,27 @@ export function CopilotPanel({
     return () => observer.disconnect();
   }, []);
 
-  // Auto-scroll to the latest message.
+  // Auto-scroll to the latest message — but only when the user is already
+  // pinned to the bottom. If they've scrolled up to read prior content,
+  // we don't pull the view down on every streaming delta.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ block: 'nearest' });
+    if (stickToBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ block: 'nearest' });
+    }
   }, [messages]);
+
+  // Track scroll position: re-engage stick-to-bottom only when the user
+  // returns to within STICK_THRESHOLD_PX of the bottom themselves.
+  useEffect(() => {
+    const el = messagesRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      stickToBottomRef.current = distanceFromBottom <= STICK_THRESHOLD_PX;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
 
   // ─── Drawer drag-resize ─────────────────────────────────────────────────
   const onDividerPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
@@ -82,7 +106,8 @@ export function CopilotPanel({
     setInputText('');
     send(text);
     inputRef.current?.focus();
-  }, [inputText, isBusy, send]);
+    snapToBottom();
+  }, [inputText, isBusy, send, snapToBottom]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -100,9 +125,16 @@ export function CopilotPanel({
     send(text, false, [], false, !isGuidelinesChip);
   }, [isBusy, send]);
 
+  // Re-engage stick-to-bottom whenever the user explicitly signals "I want
+  // the live view again" — sending a message or focusing the input.
+  const snapToBottom = useCallback((): void => {
+    stickToBottomRef.current = true;
+    messagesEndRef.current?.scrollIntoView({ block: 'nearest' });
+  }, []);
+
   // ─── Sub-renders ────────────────────────────────────────────────────────
   const chatMessages = (
-    <div className="copilot-messages">
+    <div className="copilot-messages" ref={messagesRef}>
       {messages.map((msg, i) => {
         if (msg.hidden) return null;
         const isLastAssistant = msg.role === 'assistant'
@@ -136,6 +168,7 @@ export function CopilotPanel({
         value={inputText}
         onChange={e => setInputText(e.target.value)}
         onKeyDown={handleKeyDown}
+        onFocus={snapToBottom}
         disabled={isBusy}
       />
       <button
