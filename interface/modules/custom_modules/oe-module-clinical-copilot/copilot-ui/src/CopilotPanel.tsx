@@ -25,7 +25,8 @@ export function CopilotPanel({
   const {
     messages, sources, activeSource, activeCitedText, setActiveSource, snapshot,
     status, statusMessage, send, restart,
-    addDocToSnapshot, addLabsToSnapshot, addIntakeToSnapshot, addDocId, uploadedDocIds, labsFlash,
+    addDocToSnapshot, addLabsToSnapshot, addIntakeToSnapshot, addDocId,
+    processNewIntake, uploadedDocIds, labsFlash,
   } = useCopilotChat(pid, apiUrl, csrfToken, physicianId);
 
   const uploadUrl = apiUrl.replace(/chat\.php([^/]*)$/, `upload.php?pid=${pid}&site=default`);
@@ -260,7 +261,18 @@ export function CopilotPanel({
           addDocToSnapshot(doc);
           addDocId(doc.id);
 
-          // Push extracted data into the snapshot card immediately.
+          // Intake form: don't auto-analyze — instead run the same chart-write
+          // + reload + brief regeneration flow that pre-uploaded intakes use.
+          // Without this, an in-session intake upload only updated the local
+          // snapshot and the model framed it as a "review the form" task,
+          // never persisting meds/allergies/problems into the OpenEMR chart.
+          if (extraction?.doc_type === 'intake_form') {
+            setUploadOpen(false);
+            processNewIntake();
+            return;
+          }
+
+          // Push extracted lab data into the snapshot card immediately.
           if (extraction?.doc_type === 'lab_pdf' && extraction.results?.length) {
             const today = new Date().toISOString().slice(0, 10);
             addLabsToSnapshot(extraction.results.map(r => ({
@@ -270,8 +282,6 @@ export function CopilotPanel({
               abnormal: r.abnormal_flag ?? '',
               date:     today,
             })));
-          } else if (extraction?.doc_type === 'intake_form') {
-            addIntakeToSnapshot(extraction);
           }
 
           // Dismiss the modal so the user sees the copilot panel + extraction summary.
@@ -280,15 +290,12 @@ export function CopilotPanel({
           // After a lab upload, the chart now has new procedure_result rows;
           // schedule a reload of the OpenEMR cards once the agent analysis
           // streaming completes (handled below).
-          if (extraction?.doc_type === 'lab_pdf') {
-            sessionStorage.setItem(`copilot_reload_after_done_${pid}`, '1');
-          }
+          sessionStorage.setItem(`copilot_reload_after_done_${pid}`, '1');
 
-          // Auto-trigger agent analysis.
-          const label = extraction?.doc_type === 'intake_form' ? 'intake form' : 'lab report';
+          // Auto-trigger agent analysis on the lab.
           setTimeout(() => {
             send(
-              `Analyze the uploaded ${label} and highlight any abnormal values or clinical concerns. Reference applicable guidelines.`,
+              `Analyze the uploaded lab report and highlight any abnormal values or clinical concerns. Reference applicable guidelines.`,
               false,
               [doc.id],
             );

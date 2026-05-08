@@ -44,6 +44,10 @@ export interface UseCopilotChatResult {
   addLabsToSnapshot: (labs: SnapshotLab[]) => void;
   addIntakeToSnapshot: (extraction: ExtractionSummary) => void;
   addDocId: (id: number) => void;
+  // Run the chart-load post-intake flow on demand: writeIntakeToOpenEMR via
+  // intake-process.php, then reload + brief regen. Used by the upload modal
+  // so an in-session intake upload behaves identically to a pre-uploaded one.
+  processNewIntake: () => Promise<void>;
   uploadedDocIds: number[];
   labsFlash: boolean;
 }
@@ -573,6 +577,21 @@ export function useCopilotChat(
     setNeedsSave(true);
   }, []);
 
+  // Run the same writeback + reload flow that startup uses for pre-uploaded
+  // intakes — so an in-session intake upload behaves identically:
+  //   1. process-pending → PHP writeIntakeToOpenEMR → meds/allergies/problems
+  //      land in OpenEMR + copilot_source_links populated with bbox refs.
+  //   2. Save cache so the synthetic intake-summary message survives reload.
+  //   3. Set the post-intake session flag so post-reload runs the brief.
+  //   4. Reload — the brief regenerates against the freshly-populated chart.
+  const processNewIntake = useCallback(async (): Promise<void> => {
+    const { count } = await checkAndProcessIntakes();
+    if (count === 0) return;
+    saveCache(cacheKey, messagesRef.current, sources, snapshotRef.current, uploadedDocIdsRef.current);
+    sessionStorage.setItem(postIntakeFlagKey, '1');
+    setTimeout(() => { window.location.reload(); }, 100);
+  }, [checkAndProcessIntakes, cacheKey, sources, postIntakeFlagKey]);
+
   return {
     messages,
     sources,
@@ -588,6 +607,7 @@ export function useCopilotChat(
     addLabsToSnapshot,
     addIntakeToSnapshot,
     addDocId,
+    processNewIntake,
     uploadedDocIds,
     labsFlash,
   };
