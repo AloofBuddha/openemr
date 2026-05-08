@@ -101,6 +101,46 @@ def _union_bbox(words: list[PageWord]) -> tuple[float, float, float, float]:
     )
 
 
+# How much of a word's height a same-row neighbor's vertical center can drift
+# from the matched bbox's y-band before it's considered a different line.
+# 0.5 = neighbors must overlap the band by at least half a line; loose enough
+# to absorb baseline jitter, tight enough to not cross to the next row.
+_SAME_ROW_TOLERANCE = 0.5
+
+
+def _expand_to_row_band(
+    page_words: list[PageWord],
+    bbox: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    """Expand a tight word-level bbox to span the whole row it sits on.
+
+    Why: the highlight ought to encompass the full row of context the user
+    is reading (e.g. "Metformin 500 mg PO twice daily 2020 ..."), not just
+    the matched word. We detect "same row" by checking which words on the
+    page vertically overlap the bbox's y-band. The union of their x-extents
+    is the row's x-extent.
+
+    Falls back to the input bbox if no neighbors are found (defensive: a
+    free-form prose chunk with weird layout shouldn't degrade the highlight).
+    """
+    bx0, by0, bx1, by1 = bbox
+    line_height = max(by1 - by0, 1.0)
+    band_top = by0 - line_height * _SAME_ROW_TOLERANCE
+    band_bot = by1 + line_height * _SAME_ROW_TOLERANCE
+    same_row = [
+        w for w in page_words
+        if w.y0 < band_bot and w.y1 > band_top  # vertically overlaps the band
+    ]
+    if not same_row:
+        return bbox
+    return (
+        min(w.x0 for w in same_row),
+        min(w.y0 for w in same_row),
+        max(w.x1 for w in same_row),
+        max(w.y1 for w in same_row),
+    )
+
+
 def _find_token_run(
     page_words: list[PageWord],
     norm_tokens: list[str],
@@ -135,11 +175,12 @@ def find_value_bbox(
     test_name: str | None = None,
 ) -> tuple[int, float, float, float, float, float, float] | None:
     """Locate the bbox of ``value`` (e.g. "9.2", "10 mg", "Type 2 diabetes")
-    on the page that also hosts ``test_name``.
+    on the page that also hosts ``test_name``, expanded to its full row.
 
     Returns ``(page, x0, y0, x1, y1, page_width, page_height)`` or None.
-    Multi-token values (e.g. "10 mg") are matched as a contiguous word run
-    and the bbox is the union of those word boxes. Bbox is decoration —
+    The returned bbox spans the entire row of context (e.g. "Metformin
+    500 mg PO twice daily 2020 ..."), not just the matched word — that's
+    the unit a doctor reads to verify the citation. Bbox is decoration —
     failing here returns None and the caller emits a citation without it.
     """
     norm_test = _normalize(test_name or "")
@@ -159,6 +200,8 @@ def find_value_bbox(
         if with_test:
             candidate_pages = with_test
 
+    located: tuple[int, float, float, float, float, float, float] | None = None
+
     # Step 2: contiguous-run match (handles single-token and multi-token).
     for p in candidate_pages:
         page_words = index.pages.get(p, [])
@@ -168,27 +211,42 @@ def find_value_bbox(
             covered = page_words[start:end]
             x0, y0, x1, y1 = _union_bbox(covered)
             first = covered[0]
-            return (p, x0, y0, x1, y1, first.page_width, first.page_height)
+            located = (p, x0, y0, x1, y1, first.page_width, first.page_height)
+            break
 
     # Step 3: single-token substring fallback (e.g. "9.2" within "9.2%").
-    if len(norm_tokens) == 1:
+    if located is None and len(norm_tokens) == 1:
         only = norm_tokens[0]
         for p in candidate_pages:
             for w in index.pages.get(p, []):
                 if only in _normalize(w.text):
-                    return (p, w.x0, w.y0, w.x1, w.y1, w.page_width, w.page_height)
+                    located = (p, w.x0, w.y0, w.x1, w.y1, w.page_width, w.page_height)
+                    break
+            if located is not None:
+                break
 
     # Step 4: first-token-only fallback for multi-token values.
-    # "10 mg" → at least highlight the "10" near the test name. Bbox is
-    # decoration; partial coverage beats no bbox at all.
-    if len(norm_tokens) > 1:
+    if located is None and len(norm_tokens) > 1:
         first_tok = norm_tokens[0]
         for p in candidate_pages:
             for w in index.pages.get(p, []):
                 if _normalize(w.text) == first_tok:
-                    return (p, w.x0, w.y0, w.x1, w.y1, w.page_width, w.page_height)
+                    located = (p, w.x0, w.y0, w.x1, w.y1, w.page_width, w.page_height)
+                    break
+            if located is not None:
+                break
 
-    return None
+    if located is None:
+        return None
+
+    # Expand the tight match to the full row band so the highlight in the
+    # source drawer encompasses the surrounding context, not just the
+    # matched word.
+    page_num = located[0]
+    tight = located[1:5]
+    pw, ph = located[5], located[6]
+    expanded = _expand_to_row_band(index.pages.get(page_num, []), tight)
+    return (page_num, expanded[0], expanded[1], expanded[2], expanded[3], pw, ph)
 
 # A PDF is considered text-usable when pdfplumber extracts more than this
 # many printable characters across all pages. Below this we fall back to

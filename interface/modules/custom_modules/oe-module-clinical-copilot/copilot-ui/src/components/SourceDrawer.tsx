@@ -175,7 +175,10 @@ export function SourceDrawer({
 
         {/* Cropped PDF region with the cited area highlighted. The sidecar
             crops + draws the yellow rect server-side so the image stays
-            legible at any drawer width and we don't need a JS overlay. */}
+            legible at any drawer width and we don't need a JS overlay.
+            The "Open full PDF" link renders independently — even when we
+            don't have bbox/page for the inline crop, knowing the doc id
+            is enough to let the doctor pop the original. */}
         {(() => {
           const featured = _matchResult(source.extracted_results, citedText);
           const linkBbox = source.source_link?.bbox ?? null;
@@ -187,28 +190,33 @@ export function SourceDrawer({
           const value = featured?.value ?? '';
           const pageNum = bbox?.page ?? source.source_link?.page ?? null;
 
-          // No bbox but we DO have a doc reference (PMH entry, doc-level
-          // link, no per-field coords). Still render the page image.
-          const hasAnyDocRef = bbox || (linkDocId && pageNum);
-          if (!hasAnyDocRef || !webRoot || !activeDocId || !pageNum) return null;
+          const fullPdfUrl = source.doc_url
+            ?? (activeDocId ? _fullDocUrl(openemrRoot, pid, activeDocId) : null);
+          const canShowImage = webRoot && activeDocId && pageNum;
 
-          const imgSrc = _pageImageUrl(webRoot, activeDocId, pageNum, bbox);
-          const fullPdfUrl = source.doc_url ?? _fullDocUrl(openemrRoot, pid, activeDocId);
+          if (!canShowImage && !fullPdfUrl) return null;
 
           return (
             <div className="copilot-bbox-section">
-              <p className="copilot-drawer-section-label">
-                {citedText ? <>Source · &ldquo;{citedText}&rdquo; · page {pageNum}</>
-                           : <>Source · page {pageNum}</>}
-              </p>
-              <div className="copilot-bbox-page">
-                <img src={imgSrc} alt={`Page ${pageNum} excerpt`} />
-              </div>
-              <p className="copilot-bbox-caption">
-                {bbox
-                  ? <>Yellow box: <strong>{label}</strong>{value && <> = <code>{value}</code></>}</>
-                  : <>Source page (no field-level coordinates for this entry)</>}
-              </p>
+              {canShowImage && (
+                <>
+                  <p className="copilot-drawer-section-label">
+                    {citedText ? <>Source · &ldquo;{citedText}&rdquo; · page {pageNum}</>
+                               : <>Source · page {pageNum}</>}
+                  </p>
+                  <div className="copilot-bbox-page">
+                    <img
+                      src={_pageImageUrl(webRoot!, activeDocId!, pageNum!, bbox)}
+                      alt={`Page ${pageNum} excerpt`}
+                    />
+                  </div>
+                  <p className="copilot-bbox-caption">
+                    {bbox
+                      ? <>Yellow box: <strong>{label}</strong>{value && <> = <code>{value}</code></>}</>
+                      : <>Source page (no field-level coordinates for this entry)</>}
+                  </p>
+                </>
+              )}
               {fullPdfUrl && (
                 <a
                   href={fullPdfUrl}

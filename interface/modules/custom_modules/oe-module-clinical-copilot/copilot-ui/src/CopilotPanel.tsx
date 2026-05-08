@@ -14,9 +14,9 @@ import type { CopilotPanelProps } from './types';
 import { useCopilotChat }   from './useCopilotChat';
 
 const WIDE_BREAKPOINT       = 800;
-const DRAWER_DEFAULT_WIDTH  = 260;
-const DRAWER_MIN_WIDTH      = 180;
-const DRAWER_MAX_WIDTH      = 500;
+const DRAWER_DEFAULT_WIDTH  = 380;
+const DRAWER_MIN_WIDTH      = 200;
+const DRAWER_MAX_WIDTH      = 720;
 const SEND_AFTER_RESTART_MS = 30;
 
 export function CopilotPanel({

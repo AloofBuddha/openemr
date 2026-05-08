@@ -69,6 +69,26 @@ def test_find_value_bbox_falls_back_to_first_token() -> None:
     assert res is not None
 
 
+def test_find_value_bbox_expands_to_row() -> None:
+    """The returned bbox should span the row of context, not just the matched
+    word. Chen's intake has a meds table where 'Metformin' on the left ends
+    with 'Type 2 diabetes' on the right — the bbox width should reflect that
+    full row, not the ~50 pt of just the medication name."""
+    idx = build_word_index(_load(INTAKE_DIR / "p01-chen-intake-typed.pdf"))
+    res = find_value_bbox(idx, "Metformin")
+    assert res is not None
+    _, x0, _, x1, _, page_width, _ = res
+    width = x1 - x0
+    # 'Metformin' alone is ~50pt wide. A full table row is several hundred.
+    # Anything > 200 indicates row-level expansion is working.
+    assert width > 200, (
+        f"Expected row-level bbox (>200pt wide), got {width:.0f}pt — "
+        f"row-expansion may have regressed"
+    )
+    # And the row should still fit on the page.
+    assert x1 <= page_width
+
+
 # ---------------------------------------------------------------------------
 # Lab + intake citation builders: the real call sites
 # ---------------------------------------------------------------------------
