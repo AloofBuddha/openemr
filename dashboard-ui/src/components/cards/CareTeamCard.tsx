@@ -20,6 +20,7 @@ export function CareTeamCard({ patientId }: { patientId: string }) {
   const allRows: Row[] = teams.flatMap(rows);
   return (
     <ClinicalCard
+      id="card-careteam"
       title="Care Team"
       isLoading={q.isLoading}
       isError={q.isError}

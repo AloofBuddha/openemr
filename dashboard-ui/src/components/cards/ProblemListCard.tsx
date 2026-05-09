@@ -16,6 +16,7 @@ export function ProblemListCard({ patientId }: { patientId: string }) {
   const q = useConditions(patientId);
   return (
     <ClinicalCard
+      id="card-problems"
       title="Problem List"
       isLoading={q.isLoading}
       isError={q.isError}

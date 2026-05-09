@@ -18,6 +18,7 @@ export function AllergiesCard({ patientId }: { patientId: string }) {
   const q = useAllergies(patientId);
   return (
     <ClinicalCard
+      id="card-allergies"
       title="Allergies"
       isLoading={q.isLoading}
       isError={q.isError}

@@ -103,10 +103,12 @@ TEXT;
 
         return [
             'patient' => [
-                'name' => $demo['name'] ?? '',
-                'age'  => $demo['age'] ?? '',
-                'sex'  => $demo['sex'] ?? '',
-                'dob'  => $demo['dob'] ?? '',
+                'name'   => $demo['name'] ?? '',
+                'age'    => $demo['age'] ?? '',
+                'sex'    => $demo['sex'] ?? '',
+                'dob'    => $demo['dob'] ?? '',
+                'mrn'    => $demo['mrn'] ?? '',
+                'active' => $demo['active'] ?? true,
             ],
             'appointment' => $appt ? [
                 'time'   => $appt['time'] ?? '',

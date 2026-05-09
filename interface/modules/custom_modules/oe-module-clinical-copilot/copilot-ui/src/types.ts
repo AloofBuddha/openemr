@@ -51,7 +51,14 @@ export interface CiteSource {
   source_link?: SourceLink | null;  // chart-row back-link to its source intake/lab document
 }
 
-export interface SnapshotPatient { name: string; age: string; sex: string; dob: string; }
+export interface SnapshotPatient {
+  name: string;
+  age: string;
+  sex: string;
+  dob: string;
+  mrn?: string;
+  active?: boolean;
+}
 export interface SnapshotAppt    { time: string; reason: string; }
 export interface SnapshotProblem { title: string; icd10: string; since: string; source_link?: SourceLink | null; }
 export interface SnapshotMed     { drug: string; dosage: string; note: string; source_link?: SourceLink | null; }

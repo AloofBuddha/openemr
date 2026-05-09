@@ -25,6 +25,7 @@ export function EncountersCard({ patientId }: { patientId: string }) {
     .sort((a, b) => (b.period?.start ?? '').localeCompare(a.period?.start ?? ''));
   return (
     <ClinicalCard
+      id="card-encounters"
       title="Recent Encounters"
       isLoading={q.isLoading}
       isError={q.isError}

@@ -532,6 +532,24 @@
   white-space: nowrap;
 }
 
+.copilot-snapshot-status {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.copilot-snapshot-status--active {
+  background: #d1fae5;
+  color: #065f46;
+}
+.copilot-snapshot-status--inactive {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 /* Inline (collapsed): single line, truncates with ellipsis */
 .copilot-snapshot-visit-reason--collapsed {
   font-size: 11px;

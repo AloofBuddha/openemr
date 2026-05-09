@@ -23,6 +23,7 @@ export function PrescriptionsCard({ patientId }: { patientId: string }) {
     .slice(0, 10);
   return (
     <ClinicalCard
+      id="card-prescriptions"
       title="Prescriptions"
       isLoading={q.isLoading}
       isError={q.isError}

@@ -47,6 +47,7 @@
   font-size: inherit;
   font-weight: inherit;
 }
-#patient-dashboard-root ul {
-  list-style: none;
+#patient-dashboard-root ul,
+#patient-dashboard-root ol {
+  list-style: none !important;
 }

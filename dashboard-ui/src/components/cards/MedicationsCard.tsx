@@ -20,6 +20,7 @@ export function MedicationsCard({ patientId }: { patientId: string }) {
   const q = useMedicationRequests(patientId, 'active');
   return (
     <ClinicalCard
+      id="card-medications"
       title="Medications"
       isLoading={q.isLoading}
       isError={q.isError}

@@ -69,8 +69,8 @@ final class PatientBriefTool
     private function fetchDemographics(int $patientId): array
     {
         $row = QueryUtils::querySingleRow(
-            'SELECT pid, fname, lname, DOB, sex, phone_cell, phone_home,
-                    street, city, state
+            'SELECT pid, pubpid, fname, lname, DOB, sex, phone_cell, phone_home,
+                    street, city, state, deceased_date
              FROM patient_data WHERE pid = ? LIMIT 1',
             [$patientId]
         );
@@ -87,12 +87,14 @@ final class PatientBriefTool
             }
         }
         return [
-            'pid'   => (int) $row['pid'],
-            'name'  => trim(($row['fname'] ?? '') . ' ' . ($row['lname'] ?? '')),
-            'dob'   => $dob,
-            'age'   => $age,
-            'sex'   => $row['sex'] ?? '',
-            'phone' => $row['phone_cell'] ?: ($row['phone_home'] ?? ''),
+            'pid'    => (int) $row['pid'],
+            'name'   => trim(($row['fname'] ?? '') . ' ' . ($row['lname'] ?? '')),
+            'dob'    => $dob,
+            'age'    => $age,
+            'sex'    => $row['sex'] ?? '',
+            'phone'  => $row['phone_cell'] ?: ($row['phone_home'] ?? ''),
+            'mrn'    => $row['pubpid'] ?: (string) $row['pid'],
+            'active' => empty($row['deceased_date']),
         ];
     }
 

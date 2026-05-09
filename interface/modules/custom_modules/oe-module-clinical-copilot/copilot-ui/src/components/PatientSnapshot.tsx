@@ -1,6 +1,5 @@
-import { useState } from 'react';
 import {
-  ChevronDown, ChevronUp, FileText, Plus,
+  FileText, Plus,
 } from 'lucide-react';
 
 import type {
@@ -34,7 +33,11 @@ const makeProblemSource = (p: SnapshotProblem): CiteSource => ({
     { key: 'ICD-10', value: p.icd10 },
     { key: 'Since',  value: p.since },
   ].filter(f => f.value),
-  scroll_to: '#medical_problem_ps_expand',
+  // Scroll targets are React-dashboard card IDs (rendered by
+  // patient-dashboard-bundle inside demographics.php's main column).
+  // Legacy targets like #medical_problem_ps_expand are now hidden, so
+  // we route everything to the new cards.
+  scroll_to: '#card-problems',
 });
 
 const makeAllergySource = (a: SnapshotAllergy): CiteSource => ({
@@ -43,7 +46,7 @@ const makeAllergySource = (a: SnapshotAllergy): CiteSource => ({
     { key: 'Reaction', value: a.reaction },
     { key: 'Severity', value: a.severity },
   ].filter(f => f.value),
-  scroll_to: '#allergy_ps_expand',
+  scroll_to: '#card-allergies',
 });
 
 const makeMedSource = (m: SnapshotMed): CiteSource => ({
@@ -53,7 +56,7 @@ const makeMedSource = (m: SnapshotMed): CiteSource => ({
     { key: 'Dose',  value: m.dosage },
     { key: 'Notes', value: m.note },
   ].filter(f => f.value),
-  scroll_to: '#prescriptions_ps_expand',
+  scroll_to: '#card-medications',
 });
 
 const makeVitalsSource = (v: SnapshotVitals): CiteSource => ({
@@ -63,7 +66,9 @@ const makeVitalsSource = (v: SnapshotVitals): CiteSource => ({
     const sp = p.indexOf(' ');
     return sp === -1 ? { key: p, value: '' } : { key: p.slice(0, sp), value: p.slice(sp + 1) };
   }),
-  scroll_to: '#vitals_ps_expand',
+  // Vitals card not implemented in dashboard yet — fall back to
+  // the encounters card which is the closest visual match.
+  scroll_to: '#card-encounters',
 });
 
 const makeLabSource = (l: SnapshotLab): CiteSource => ({
@@ -73,13 +78,16 @@ const makeLabSource = (l: SnapshotLab): CiteSource => ({
     { key: 'Flag',      value: l.abnormal || 'Within range' },
     { key: 'Collected', value: l.date },
   ].filter(f => f.value),
-  scroll_to: '#labdata_ps_expand',
+  // Labs not yet a dedicated card in dashboard — point at encounters.
+  scroll_to: '#card-encounters',
 });
 
 export function PatientSnapshot({
   snapshot, compact, onOpenSource, onOpenUpload, webRoot, pid, labsFlash,
 }: Props) {
-  const [expanded, setExpanded] = useState(false);
+  // Always-expanded — the snapshot now serves as the persistent
+  // patient header (PRD deliverable) instead of a collapsible drawer.
+  const expanded = true;
   const { patient, appointment, problems, medications, allergies, labs, documents, vitals } = snapshot;
 
   const sortedLabs = [...labs].sort((a, b) =>
@@ -91,22 +99,22 @@ export function PatientSnapshot({
 
   return (
     <div className={`copilot-snapshot${compact ? ' copilot-snapshot-compact' : ''}`}>
-      <div className="copilot-snapshot-identity" onClick={() => setExpanded(e => !e)} role="button">
+      <div className="copilot-snapshot-identity">
         <span className="copilot-snapshot-name">{patient.name}</span>
+        {patient.active === false ? (
+          <span className="copilot-snapshot-status copilot-snapshot-status--inactive">Inactive</span>
+        ) : (
+          <span className="copilot-snapshot-status copilot-snapshot-status--active">Active</span>
+        )}
         <span className="copilot-snapshot-demo">
-          {patient.age && `${patient.age}y`}{patient.sex && ` · ${patient.sex}`}
+          {patient.dob && `DOB ${patient.dob}`}
+          {patient.age && ` · ${patient.age}y`}
+          {patient.sex && ` · ${patient.sex}`}
+          {patient.mrn && ` · MRN ${patient.mrn}`}
         </span>
         {appointment?.time && (
           <span className="copilot-snapshot-appt-time">{formatApptTime(appointment.time)}</span>
         )}
-        {reasonText && !expanded && (
-          <span className="copilot-snapshot-visit-reason copilot-snapshot-visit-reason--collapsed" title={reasonText}>
-            {reasonText}
-          </span>
-        )}
-        <span className="copilot-snapshot-chevron">
-          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </span>
       </div>
 
       {expanded && <>
