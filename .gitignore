@@ -38,6 +38,9 @@ tmp-phpstan/*
 
 # easy dev worktree support
 .worktrees.json
+
+# Built dashboard SPA — deployed by scripts/deploy.sh, not source-controlled
+/dashboard/
 docker/development-easy/docker-compose.override.yml
 docker/development-easy-light/docker-compose.override.yml
 docker/development-easy-redis/docker-compose.override.yml

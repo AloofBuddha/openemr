@@ -1,0 +1,9 @@
+# SPA fallback for client-side routes (TanStack Router).
+# Apache serves /dashboard/* directly for real files, otherwise rewrites
+# to /dashboard/index.html so the React router can handle the URL.
+RewriteEngine On
+RewriteBase /dashboard/
+RewriteRule ^index\.html$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /dashboard/index.html [L]
