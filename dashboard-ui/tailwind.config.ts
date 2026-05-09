@@ -1,7 +1,16 @@
 import type { Config } from 'tailwindcss';
 
+// Scope every Tailwind utility under #patient-dashboard-root so we
+// don't override OpenEMR's Bootstrap styles. Without this scope our
+// bundle's `.text-sm` would clash with Bootstrap's `.text-sm` outside
+// the dashboard. preflight is disabled too — that resets `body`,
+// `*`, etc. globally and would wreck OpenEMR's chrome.
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
+  corePlugins: {
+    preflight: false,
+  },
+  important: '#patient-dashboard-root',
   theme: {
     extend: {
       colors: {

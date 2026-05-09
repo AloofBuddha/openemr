@@ -1085,18 +1085,35 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
         ?>
         <div class="main mb-1">
             <!-- start main content div -->
-            <!--
-              Week 2 surprise-challenge port: the React patient dashboard at
-              `dashboard-ui/` (served at /dashboard/) replaces the legacy PHP
-              widgets below. We keep the legacy markup in the DOM (hidden) so
-              the PHP rendering pipeline + RenderEvent dispatchers still run —
-              the copilot Bootstrap.php expects this page to exist as-is.
-            -->
-            <iframe
-                src="<?php echo OEGlobalsBag::getInstance()->getWebRoot(); ?>/dashboard/patient/<?php echo (int) $pid; ?>?embedded=1"
-                title="Patient Summary"
-                style="width:100%; height:calc(100vh - 180px); min-height:600px; border:0; background:#fff; border-radius:6px;"
-            ></iframe>
+            <?php
+            // Week 2 surprise-challenge: the React patient-dashboard bundle
+            // (built from dashboard-ui/) mounts here, replacing the legacy
+            // widget grid. Following the same extension pattern as the
+            // copilot module — hook into the existing page, hide some
+            // things, render React in-place. Auth uses the user's existing
+            // PHP session via fhir-proxy.php, not a separate OAuth round-trip.
+            $pdWebRoot = OEGlobalsBag::getInstance()->getWebRoot();
+            $pdPublicUrl = $pdWebRoot . '/interface/modules/custom_modules/oe-module-clinical-copilot/public';
+            $pdBundlePath = dirname(__DIR__, 2) . '/modules/custom_modules/oe-module-clinical-copilot/public/js/patient-dashboard-bundle.js';
+            $pdBundleVer = file_exists($pdBundlePath) ? filemtime($pdBundlePath) : 0;
+            $pdCsrf = CsrfUtils::collectCsrfToken($session);
+            ?>
+            <div id="patient-dashboard-root"></div>
+            <script src="<?php echo attr($pdPublicUrl); ?>/js/patient-dashboard-bundle.js?v=<?php echo (int) $pdBundleVer; ?>"></script>
+            <script>
+                (function () {
+                    if (window.patientDashboardInit) {
+                        window.patientDashboardInit(
+                            <?php echo (int) $pid; ?>,
+                            <?php echo json_encode($pdPublicUrl . '/fhir-proxy.php'); ?>,
+                            <?php echo json_encode($pdCsrf); ?>
+                        );
+                    }
+                })();
+            </script>
+            <!-- Legacy widgets retained in the DOM (hidden) so the PHP
+                 rendering pipeline + RenderEvent dispatchers still run —
+                 the copilot Bootstrap.php expects this page as-is. -->
             <div style="display:none">
             <div class="row">
                 <?php

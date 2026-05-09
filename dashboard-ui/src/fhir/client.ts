@@ -1,6 +1,8 @@
-import { config } from '@/config';
-import { useAuth } from '@/auth/useAuth';
-import { refreshAccessToken } from '@/auth/oauth';
+// FHIR proxy client. Calls a PHP endpoint inside the OpenEMR module
+// that authenticates via the user's existing PHP session, calls the
+// FHIR service classes server-side, and returns FHIR-formatted JSON.
+// The browser never holds an OAuth token — auth is the OpenEMR session
+// cookie that's already set when the dashboard loads.
 
 export class FhirError extends Error {
   constructor(
@@ -12,55 +14,29 @@ export class FhirError extends Error {
   }
 }
 
-let inflightRefresh: Promise<string | null> | null = null;
-
-async function refreshIfPossible(): Promise<string | null> {
-  if (inflightRefresh) return inflightRefresh;
-  const refreshToken = useAuth.getState().refreshToken;
-  if (!refreshToken) return null;
-  inflightRefresh = (async () => {
-    try {
-      const tok = await refreshAccessToken(refreshToken);
-      useAuth.getState().setTokens({
-        accessToken: tok.access_token,
-        refreshToken: tok.refresh_token,
-        expiresIn: tok.expires_in,
-      });
-      return tok.access_token;
-    } catch {
-      useAuth.getState().clear();
-      return null;
-    } finally {
-      inflightRefresh = null;
-    }
-  })();
-  return inflightRefresh;
+interface ProxyConfig {
+  proxyUrl: string;
+  csrfToken: string;
 }
 
-export async function fhirFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const url = path.startsWith('http') ? path : `${config.fhirBase}${path}`;
-  const doFetch = async (token: string) => {
-    return fetch(url, {
-      ...init,
-      headers: {
-        Accept: 'application/fhir+json',
-        ...init?.headers,
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  };
+let config: ProxyConfig | null = null;
 
-  let token = useAuth.getState().accessToken;
-  if (!token) throw new FhirError('Not authenticated', 401);
+export function setProxyConfig(c: ProxyConfig): void {
+  config = c;
+}
 
-  let res = await doFetch(token);
-  if (res.status === 401) {
-    const refreshed = await refreshIfPossible();
-    if (!refreshed) throw new FhirError('Session expired', 401);
-    token = refreshed;
-    res = await doFetch(token);
-  }
+export async function fhirFetch<T>(path: string): Promise<T> {
+  if (!config) throw new FhirError('Dashboard not initialized', 500);
+  const url = new URL(config.proxyUrl, window.location.origin);
+  // path looks like `/Patient/20` or `/AllergyIntolerance?patient=20`.
+  url.searchParams.set('path', path.replace(/^\//, ''));
+  url.searchParams.set('csrf_token', config.csrfToken);
 
+  const res = await fetch(url.toString(), {
+    method: 'GET',
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' },
+  });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new FhirError(`FHIR ${res.status}`, res.status, body);

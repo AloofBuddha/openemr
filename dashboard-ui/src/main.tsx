@@ -1,13 +1,19 @@
 import React from 'react';
-import ReactDOM from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { RouterProvider, createRouter } from '@tanstack/react-router';
-import { routeTree } from './routeTree';
-import { captureEmbeddedFromUrl } from './lib/embed';
+import { PatientDashboard } from './PatientDashboard';
+import { setProxyConfig } from './fhir/client';
 import './index.css';
 
-// Capture ?embedded=1 before the router strips the query string.
-captureEmbeddedFromUrl();
+declare global {
+  interface Window {
+    patientDashboardInit: (
+      pid: number,
+      proxyUrl: string,
+      csrfToken: string,
+    ) => void;
+  }
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,18 +25,19 @@ const queryClient = new QueryClient({
   },
 });
 
-const router = createRouter({ routeTree, basepath: '/dashboard' });
+window.patientDashboardInit = (pid, proxyUrl, csrfToken) => {
+  const root = document.getElementById('patient-dashboard-root');
+  if (!root) return;
+  if (root.dataset.initialized) return;
+  root.dataset.initialized = '1';
 
-declare module '@tanstack/react-router' {
-  interface Register {
-    router: typeof router;
-  }
-}
+  setProxyConfig({ proxyUrl, csrfToken });
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
-  </React.StrictMode>,
-);
+  createRoot(root).render(
+    <React.StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <PatientDashboard patientId={String(pid)} />
+      </QueryClientProvider>
+    </React.StrictMode>,
+  );
+};
