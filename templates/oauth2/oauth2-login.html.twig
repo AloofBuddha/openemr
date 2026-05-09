@@ -89,10 +89,10 @@
                 <div class="col-md-12">
                     <div class="btn-group">
                         {% if mfaRequired is empty %}
-                            <button type="submit" name="user_role" class="btn btn-outline-primary" value="api">{{"OpenEMR Login"|xlt }} <i class="fa fa-sign-in-alt"></i></button>
-                            {% if patientRoleSupport is not empty %}
-                                <button type="submit" name="user_role" class="btn btn-outline-info" value="portal-api">{{ "Patient Login"|xlt  }} <i class="fa fa-sign-in-alt"></i></button>
-                            {% endif %}
+                            {# Week 2 fork: provider-only login. Even with rest_fhir_api on,
+                               we don't want a Patient Login button on the OAuth screen
+                               since the React dashboard is a clinician tool. #}
+                            <button type="submit" name="user_role" class="btn btn-primary btn-save" value="api">{{"Login"|xlt }} <i class="fa fa-sign-in-alt"></i></button>
                         {% endif %}
                     </div>
                     <div class="form-check-inline float-right">
