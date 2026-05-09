@@ -30,6 +30,7 @@ require_once dirname(__FILE__, 5) . '/globals.php';
 use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
 use OpenEMR\Common\Session\SessionWrapperFactory;
+use OpenEMR\Common\Uuid\UuidRegistry;
 use OpenEMR\RestControllers\FHIR\FhirPatientRestController;
 use OpenEMR\RestControllers\FHIR\FhirAllergyIntoleranceRestController;
 use OpenEMR\RestControllers\FHIR\FhirConditionRestController;
@@ -37,6 +38,19 @@ use OpenEMR\RestControllers\FHIR\FhirMedicationRequestRestController;
 use OpenEMR\RestControllers\FHIR\FhirCareTeamRestController;
 use OpenEMR\RestControllers\FHIR\FhirEncounterRestController;
 use Psr\Http\Message\ResponseInterface;
+
+/** Resolve an integer OpenEMR pid to the FHIR-shaped patient UUID. */
+function resolvePuuid(string $pid): ?string
+{
+    if (!ctype_digit($pid)) {
+        return $pid; // already a uuid string
+    }
+    $row = sqlQuery('SELECT uuid FROM patient_data WHERE pid = ? LIMIT 1', [(int) $pid]);
+    if (empty($row['uuid'])) {
+        return null;
+    }
+    return UuidRegistry::uuidToString($row['uuid']);
+}
 
 header('Content-Type: application/json');
 
@@ -74,6 +88,28 @@ parse_str($queryString, $searchParams);
 $resource = $segments[0] ?? '';
 $resourceId = $segments[1] ?? null;
 
+// Translate `patient=<pid>` (integer) to `patient=<uuid>` since the
+// FHIR services compare against the UUID column. Also translate the
+// path component for Patient/{id} when the id is numeric.
+if (isset($searchParams['patient'])) {
+    $resolved = resolvePuuid((string) $searchParams['patient']);
+    if ($resolved === null) {
+        http_response_code(404);
+        echo json_encode(['error' => 'patient_not_found']);
+        exit;
+    }
+    $searchParams['patient'] = $resolved;
+}
+if ($resource === 'Patient' && $resourceId !== null) {
+    $resolved = resolvePuuid($resourceId);
+    if ($resolved === null) {
+        http_response_code(404);
+        echo json_encode(['error' => 'patient_not_found']);
+        exit;
+    }
+    $resourceId = $resolved;
+}
+
 $controllers = [
     'Patient' => FhirPatientRestController::class,
     'AllergyIntolerance' => FhirAllergyIntoleranceRestController::class,
@@ -106,6 +142,13 @@ try {
     }
 } catch (\Throwable $e) {
     http_response_code(500);
-    error_log('fhir-proxy: ' . $e->getMessage());
-    echo json_encode(['error' => 'server_error']);
+    error_log('fhir-proxy: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    // Verbose error during development. Strip class FQNs from message
+    // so we don't leak too much, but include enough to debug controller
+    // signature mismatches.
+    echo json_encode([
+        'error' => 'server_error',
+        'detail' => $e->getMessage(),
+        'where' => basename($e->getFile()) . ':' . $e->getLine(),
+    ]);
 }
