@@ -2,15 +2,7 @@ import {
   FileText, Plus,
 } from 'lucide-react';
 
-import type {
-  CiteSource,
-  Snapshot,
-  SnapshotAllergy,
-  SnapshotLab,
-  SnapshotMed,
-  SnapshotProblem,
-  SnapshotVitals,
-} from '../types';
+import type { CiteSource, Snapshot } from '../types';
 import { _formatVitals, formatApptTime } from '../utils';
 
 const LAB_FLAG_ORDER: Record<string, number> = { H: 0, '': 1, L: 2 };
@@ -25,62 +17,26 @@ interface Props {
   labsFlash?: boolean;
 }
 
-// Helpers: turn each snapshot entry into a CiteSource so clicking a chip
-// opens the same shelf as clicking a citation in the chat.
-const makeProblemSource = (p: SnapshotProblem): CiteSource => ({
-  type: 'problem', label: p.title,
-  fields: [
-    { key: 'ICD-10', value: p.icd10 },
-    { key: 'Since',  value: p.since },
-  ].filter(f => f.value),
-  // Scroll targets are React-dashboard card IDs (rendered by
-  // patient-dashboard-bundle inside demographics.php's main column).
-  // Legacy targets like #medical_problem_ps_expand are now hidden, so
-  // we route everything to the new cards.
-  scroll_to: '#card-problems',
-});
+// Slug a label into a row id matching the React dashboard's card row
+// IDs (e.g. "Penicillin" -> "penicillin", "Type 2 Diabetes" -> "type-2-diabetes").
+// Must stay byte-for-byte identical to the slug() in
+// dashboard-ui/src/lib/format.ts; the two encodings have to agree
+// or the snapshot chip's scroll target won't match the card row id.
+const slug = (s: string): string =>
+  (s ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 
-const makeAllergySource = (a: SnapshotAllergy): CiteSource => ({
-  type: 'allergy', label: a.title,
-  fields: [
-    { key: 'Reaction', value: a.reaction },
-    { key: 'Severity', value: a.severity },
-  ].filter(f => f.value),
-  scroll_to: '#card-allergies',
-});
+const SCROLL_FLASH_MS = 1400;
 
-const makeMedSource = (m: SnapshotMed): CiteSource => ({
-  type: 'medication', label: `${m.drug} ${m.dosage}`.trim(),
-  fields: [
-    { key: 'Drug',  value: m.drug },
-    { key: 'Dose',  value: m.dosage },
-    { key: 'Notes', value: m.note },
-  ].filter(f => f.value),
-  scroll_to: '#card-medications',
-});
-
-const makeVitalsSource = (v: SnapshotVitals): CiteSource => ({
-  type: 'vital',
-  label: 'Vitals (intake form)',
-  fields: _formatVitals(v).map(p => {
-    const sp = p.indexOf(' ');
-    return sp === -1 ? { key: p, value: '' } : { key: p.slice(0, sp), value: p.slice(sp + 1) };
-  }),
-  // Vitals card not implemented in dashboard yet — fall back to
-  // the encounters card which is the closest visual match.
-  scroll_to: '#card-encounters',
-});
-
-const makeLabSource = (l: SnapshotLab): CiteSource => ({
-  type: 'lab', label: `${l.test}: ${l.value} ${l.units}`.trim(),
-  fields: [
-    { key: 'Result',    value: `${l.value} ${l.units}`.trim() },
-    { key: 'Flag',      value: l.abnormal || 'Within range' },
-    { key: 'Collected', value: l.date },
-  ].filter(f => f.value),
-  // Labs not yet a dedicated card in dashboard — point at encounters.
-  scroll_to: '#card-encounters',
-});
+const scrollToCardRow = (selector: string): void => {
+  const el = document.querySelector<HTMLElement>(selector);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('copilot-scroll-flash');
+  setTimeout(() => el.classList.remove('copilot-scroll-flash'), SCROLL_FLASH_MS);
+};
 
 export function PatientSnapshot({
   snapshot, compact, onOpenSource, onOpenUpload, webRoot, pid, labsFlash,
@@ -94,7 +50,10 @@ export function PatientSnapshot({
     (LAB_FLAG_ORDER[a.abnormal ?? ''] ?? 1) - (LAB_FLAG_ORDER[b.abnormal ?? ''] ?? 1)
   );
 
-  const chipClick = (src: CiteSource): void => onOpenSource?.(src);
+  // Chips in the identity bar now scroll to + flash the matching row
+  // in the React dashboard cards, instead of opening the source drawer.
+  // The drawer remains for citation chips inside chat messages.
+  const goTo = (selector: string): void => scrollToCardRow(selector);
   const reasonText = appointment?.reason ?? '';
 
   return (
@@ -132,7 +91,7 @@ export function PatientSnapshot({
                 <span key={i}
                   className="copilot-snapshot-chip copilot-chip-problem copilot-chip-clickable"
                   title={p.icd10 || undefined}
-                  onClick={() => chipClick(makeProblemSource(p))}>
+                  onClick={() => goTo(`#card-problems-row-${slug(p.title)}`)}>
                   {p.title}
                 </span>
               ))}
@@ -143,7 +102,7 @@ export function PatientSnapshot({
         {vitals && _formatVitals(vitals).length > 0 && (
           <div
             className="copilot-snapshot-row copilot-chip-clickable"
-            onClick={() => chipClick(makeVitalsSource(vitals))}
+            onClick={() => goTo('#card-encounters')}
             role="button"
             title="View vitals detail"
           >
@@ -163,7 +122,7 @@ export function PatientSnapshot({
               ? allergies.map((a, i) => (
                   <span key={i}
                     className="copilot-snapshot-chip copilot-chip-allergy copilot-chip-clickable"
-                    onClick={() => chipClick(makeAllergySource(a))}>
+                    onClick={() => goTo(`#card-allergies-row-${slug(a.title)}`)}>
                     {a.title}
                   </span>
                 ))
@@ -179,7 +138,7 @@ export function PatientSnapshot({
               ? medications.map((m, i) => (
                   <span key={i}
                     className="copilot-snapshot-chip copilot-chip-med copilot-chip-clickable"
-                    onClick={() => chipClick(makeMedSource(m))}>
+                    onClick={() => goTo(`#card-medications-row-${slug(m.drug)}`)}>
                     {m.drug} {m.dosage}
                   </span>
                 ))
@@ -200,7 +159,7 @@ export function PatientSnapshot({
                 return (
                   <span key={i}
                     className={`copilot-snapshot-chip ${cls} copilot-chip-clickable`}
-                    onClick={() => chipClick(makeLabSource(l))}
+                    onClick={() => goTo('#card-encounters')}
                     title={`Collected ${l.date}`}>
                     {l.test} {l.value}{l.units}
                     {flag && <span className="copilot-chip-flag">{flag}</span>}

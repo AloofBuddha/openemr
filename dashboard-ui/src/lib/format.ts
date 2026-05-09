@@ -1,5 +1,15 @@
 import type { HumanName, Patient } from '@/fhir/types';
 
+// Slug a label so cards can derive stable row ids that match the
+// snapshot chips' scroll targets. Must stay byte-for-byte identical
+// to the slug() in copilot-ui PatientSnapshot.tsx.
+export function slug(s: string | undefined): string {
+  return (s ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 export function formatHumanName(name: HumanName | undefined): string {
   if (!name) return '—';
   if (name.text) return name.text;

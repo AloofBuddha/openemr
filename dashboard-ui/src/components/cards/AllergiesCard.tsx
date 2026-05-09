@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { ClinicalCard } from '@/components/ClinicalCard';
 import { useAllergies, fhirEntries } from '@/fhir/hooks';
 import type { AllergyIntolerance } from '@/fhir/types';
+import { slug } from '@/lib/format';
 
 function describe(a: AllergyIntolerance): string {
   return a.code?.text ?? a.code?.coding?.[0]?.display ?? a.code?.coding?.[0]?.code ?? '—';
@@ -24,6 +25,7 @@ export function AllergiesCard({ patientId }: { patientId: string }) {
       isError={q.isError}
       error={q.error}
       items={fhirEntries(q.data)}
+      getRowId={(a) => `card-allergies-row-${slug(describe(a))}`}
       renderItem={(a) => (
         <div className="flex items-center justify-between gap-2">
           <div>

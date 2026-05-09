@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { ClinicalCard } from '@/components/ClinicalCard';
 import { useConditions, fhirEntries } from '@/fhir/hooks';
 import type { Condition } from '@/fhir/types';
-import { formatDate } from '@/lib/format';
+import { formatDate, slug } from '@/lib/format';
 
 function describe(c: Condition): string {
   return c.code?.text ?? c.code?.coding?.[0]?.display ?? c.code?.coding?.[0]?.code ?? '—';
@@ -22,6 +22,7 @@ export function ProblemListCard({ patientId }: { patientId: string }) {
       isError={q.isError}
       error={q.error}
       items={fhirEntries(q.data)}
+      getRowId={(c) => `card-problems-row-${slug(describe(c))}`}
       renderItem={(c) => {
         const status = statusOf(c);
         return (

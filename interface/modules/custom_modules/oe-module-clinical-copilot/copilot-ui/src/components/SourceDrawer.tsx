@@ -129,6 +129,12 @@ export function SourceDrawer({
   // OpenEMR uses jQuery + Bootstrap collapse for its expandable cards.
   // If the section we're scrolling into is currently collapsed, expand it
   // first so the highlight is actually visible.
+  // OpenEMR uses jQuery + Bootstrap collapse for its expandable cards.
+  // If the section we're scrolling into is currently collapsed, expand
+  // it first so the highlight is actually visible. For the new React
+  // patient-dashboard cards, scroll_to points at a specific row id
+  // (e.g. `#card-allergies-row-penicillin`) so the highlight lands on
+  // the matching row instead of the entire card container.
   const handleScrollTo = (): void => {
     if (!source.scroll_to) return;
     const el = document.querySelector<HTMLElement>(source.scroll_to);
@@ -139,10 +145,9 @@ export function SourceDrawer({
       if ($el.hasClass('collapse') && !$el.hasClass('show')) $el.collapse('show');
     }
     setTimeout(() => {
-      const target = el.closest<HTMLElement>('.card') ?? el;
-      target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      target.classList.add('copilot-scroll-flash');
-      setTimeout(() => target.classList.remove('copilot-scroll-flash'), SCROLL_FLASH_MS);
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('copilot-scroll-flash');
+      setTimeout(() => el.classList.remove('copilot-scroll-flash'), SCROLL_FLASH_MS);
     }, 50);
   };
 

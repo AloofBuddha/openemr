@@ -1098,6 +1098,10 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
             $pdBundleVer = file_exists($pdBundlePath) ? filemtime($pdBundlePath) : 0;
             $pdCsrf = CsrfUtils::collectCsrfToken($session);
             ?>
+            <!-- Patient identity bar — copilot bundle portals
+                 PatientSnapshot here so the persistent identity bar lives
+                 at the very top of the page, separate from the chat. -->
+            <div id="patient-snapshot-root"></div>
             <div id="patient-dashboard-root"></div>
             <script src="<?php echo attr($pdPublicUrl); ?>/js/patient-dashboard-bundle.js?v=<?php echo (int) $pdBundleVer; ?>"></script>
             <script>

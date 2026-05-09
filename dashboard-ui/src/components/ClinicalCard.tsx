@@ -13,6 +13,12 @@ interface Props<T> {
   items: T[];
   emptyMessage?: string;
   renderItem: (item: T, index: number) => React.ReactNode;
+  /**
+   * Optional per-row id getter — when provided, each row gets an id
+   * like `card-allergies-row-penicillin`. Snapshot chips scroll to
+   * these row ids and flash just the matching row.
+   */
+  getRowId?: (item: T, index: number) => string | undefined;
   /** Header right-side action (e.g. filter chip, link to full list). */
   action?: React.ReactNode;
 }
@@ -26,6 +32,7 @@ export function ClinicalCard<T>({
   items,
   emptyMessage = 'None recorded.',
   renderItem,
+  getRowId,
   action,
 }: Props<T>) {
   return (
@@ -62,6 +69,7 @@ export function ClinicalCard<T>({
             {items.map((item, i) => (
               <div
                 key={i}
+                id={getRowId?.(item, i)}
                 className={`px-4 py-1.5 ${i % 2 === 1 ? 'bg-slate-50' : 'bg-white'}`}
               >
                 {renderItem(item, i)}

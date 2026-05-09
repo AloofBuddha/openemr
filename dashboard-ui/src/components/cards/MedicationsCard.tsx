@@ -1,6 +1,7 @@
 import { ClinicalCard } from '@/components/ClinicalCard';
 import { useMedicationRequests, fhirEntries } from '@/fhir/hooks';
 import type { MedicationRequest } from '@/fhir/types';
+import { slug } from '@/lib/format';
 
 function medName(m: MedicationRequest): string {
   return (
@@ -27,6 +28,7 @@ export function MedicationsCard({ patientId }: { patientId: string }) {
       error={q.error}
       items={fhirEntries(q.data)}
       emptyMessage="No active medications."
+      getRowId={(m) => `card-medications-row-${slug(medName(m).split(' ')[0])}`}
       renderItem={(m) => (
         <div>
           <p className="font-medium">{medName(m)}</p>

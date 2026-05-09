@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Maximize2, Minimize2, Paperclip, RotateCcw, Send,
   FlaskConical,
@@ -221,19 +222,35 @@ export function CopilotPanel({
         </div>
       </div>
 
+      {/*
+        Render PatientSnapshot into the standalone identity-bar mount
+        point (`#patient-snapshot-root` in demographics.php) when it
+        exists, so the snapshot lives at the very top of the patient
+        page as the persistent identity bar — separate from the
+        copilot chat widget. Falls back to inline rendering for
+        environments without that mount point.
+      */}
+      {snapshot && (() => {
+        const portalEl =
+          typeof document !== 'undefined'
+            ? document.getElementById('patient-snapshot-root')
+            : null;
+        const node = (
+          <PatientSnapshot
+            snapshot={snapshot}
+            compact={!isWide}
+            onOpenSource={setActiveSource}
+            onOpenUpload={() => setUploadOpen(true)}
+            webRoot={webRoot}
+            pid={pid}
+            labsFlash={labsFlash}
+          />
+        );
+        return portalEl ? createPortal(node, portalEl) : node;
+      })()}
+
       <div className={`copilot-body${collapsed ? ' collapsed' : ''}${isWide ? ' copilot-body-wide' : ''}`}>
         <div className="copilot-main">
-          {snapshot && (
-            <PatientSnapshot
-              snapshot={snapshot}
-              compact={!isWide}
-              onOpenSource={setActiveSource}
-              onOpenUpload={() => setUploadOpen(true)}
-              webRoot={webRoot}
-              pid={pid}
-              labsFlash={labsFlash}
-            />
-          )}
           {chatMessages}
           {inputRow}
         </div>
