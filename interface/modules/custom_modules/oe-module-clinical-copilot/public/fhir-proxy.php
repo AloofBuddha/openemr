@@ -53,8 +53,10 @@ require_once dirname(__FILE__, 5) . '/globals.php';
 
 use OpenEMR\Common\Acl\AclMain;
 use OpenEMR\Common\Csrf\CsrfUtils;
+use OpenEMR\Common\Http\HttpRestRequest;
 use OpenEMR\Common\Session\SessionWrapperFactory;
 use OpenEMR\Common\Uuid\UuidRegistry;
+use OpenEMR\Core\OEGlobalsBag;
 use OpenEMR\RestControllers\FHIR\FhirPatientRestController;
 use OpenEMR\RestControllers\FHIR\FhirAllergyIntoleranceRestController;
 use OpenEMR\RestControllers\FHIR\FhirConditionRestController;
@@ -150,8 +152,19 @@ if (!isset($controllers[$resource])) {
 }
 
 try {
+    // Some FHIR controllers (AllergyIntolerance) require an
+    // HttpRestRequest in their constructor so they can build absolute
+    // bundle entry URLs. Build one with the public API base URL.
+    $apiBase = OEGlobalsBag::getInstance()->get('site_addr_oath') . '/apis/default/fhir';
+    $restRequest = new HttpRestRequest();
+    $restRequest->setApiBaseFullUrl($apiBase);
+
     /** @var object $controller */
-    $controller = new $controllers[$resource]();
+    $controllerClass = $controllers[$resource];
+    $reflectionCtor = new \ReflectionMethod($controllerClass, '__construct');
+    $controller = $reflectionCtor->getNumberOfRequiredParameters() > 0
+        ? new $controllerClass($restRequest)
+        : new $controllerClass();
     $response = $resourceId !== null
         ? $controller->getOne($resourceId)
         : $controller->getAll($searchParams, null);
