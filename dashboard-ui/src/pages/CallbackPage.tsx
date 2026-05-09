@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { exchangeCode } from '@/auth/oauth';
+import { exchangeCode, consumeReturnTo } from '@/auth/oauth';
 import { useAuth } from '@/auth/useAuth';
 
 export function CallbackPage() {
-  const navigate = useNavigate();
   const setTokens = useAuth((s) => s.setTokens);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +31,11 @@ export function CallbackPage() {
           expiresIn: tok.expires_in,
           patientContext: tok.patient,
         });
-        navigate({ to: '/patients', replace: true });
+        // Full-page navigation so the URL the user originally
+        // requested (with query params like ?embedded=1) is restored
+        // exactly. Router.navigate would lose the search string.
+        const returnTo = consumeReturnTo() ?? '/dashboard/patients';
+        window.location.replace(returnTo);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -42,7 +44,7 @@ export function CallbackPage() {
     return () => {
       cancelled = true;
     };
-  }, [navigate, setTokens]);
+  }, [setTokens]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">

@@ -5,6 +5,13 @@ import { config } from '@/config';
 
 const PKCE_VERIFIER_KEY = 'oauth.pkce_verifier';
 const PKCE_STATE_KEY = 'oauth.state';
+const RETURN_TO_KEY = 'oauth.return_to';
+
+export function consumeReturnTo(): string | null {
+  const v = sessionStorage.getItem(RETURN_TO_KEY);
+  sessionStorage.removeItem(RETURN_TO_KEY);
+  return v;
+}
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let str = '';
@@ -36,6 +43,13 @@ export async function startLogin(): Promise<void> {
 
   sessionStorage.setItem(PKCE_VERIFIER_KEY, verifier);
   sessionStorage.setItem(PKCE_STATE_KEY, state);
+
+  // Remember the URL the user was trying to reach so the callback can
+  // route them back. Skip the callback path itself.
+  const here = window.location.pathname + window.location.search;
+  if (!here.startsWith('/dashboard/callback')) {
+    sessionStorage.setItem(RETURN_TO_KEY, here);
+  }
 
   // Note: `aud` is intentionally omitted. OpenEMR's CustomAuthCodeGrant
   // skips the audience check when `aud` is absent and there's no SMART

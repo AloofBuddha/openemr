@@ -1085,6 +1085,19 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
         ?>
         <div class="main mb-1">
             <!-- start main content div -->
+            <!--
+              Week 2 surprise-challenge port: the React patient dashboard at
+              `dashboard-ui/` (served at /dashboard/) replaces the legacy PHP
+              widgets below. We keep the legacy markup in the DOM (hidden) so
+              the PHP rendering pipeline + RenderEvent dispatchers still run —
+              the copilot Bootstrap.php expects this page to exist as-is.
+            -->
+            <iframe
+                src="<?php echo OEGlobalsBag::getInstance()->getWebRoot(); ?>/dashboard/patient/<?php echo (int) $pid; ?>?embedded=1"
+                title="Patient Summary"
+                style="width:100%; height:calc(100vh - 180px); min-height:600px; border:0; background:#fff; border-radius:6px;"
+            ></iframe>
+            <div style="display:none">
             <div class="row">
                 <?php
                 $t = $twig->getTwig();
@@ -2046,6 +2059,7 @@ $oemr_ui = new OemrUI($arrOeUiSettings);
                     ?>
                 </div> <!-- end right column div -->
             </div> <!-- end div.main > row:first  -->
+            </div> <!-- end Week 2 hidden legacy widgets wrapper -->
         </div> <!-- end main content div -->
     </div><!-- end container div -->
     <?php $oemr_ui->oeBelowContainerDiv(); ?>
