@@ -1,56 +1,58 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/auth/useAuth';
 import { startLogin } from '@/auth/oauth';
 import { config } from '@/config';
 
+// `/dashboard/` immediately redirects to the OpenEMR OAuth authorize
+// endpoint — there is no intermediate "click to log in" screen. The
+// fallback card below renders only if redirect fails (missing client_id
+// or thrown error from startLogin).
 export function LoginPage() {
   const navigate = useNavigate();
   const isAuthed = useAuth((s) => s.isAuthenticated());
   const [error, setError] = useState<string | null>(null);
+  const startedRef = useRef(false);
 
   useEffect(() => {
     if (isAuthed) {
-      navigate({ to: '/patients' });
+      navigate({ to: '/patients', replace: true });
+      return;
     }
+    if (!config.clientId) {
+      setError(
+        'OAuth client not configured. Set VITE_OAUTH_CLIENT_ID and rebuild — see dashboard-ui/.env.production.example.',
+      );
+      return;
+    }
+    // Guard against React 18 StrictMode double-invoke: PKCE verifier in
+    // sessionStorage is consumed once; redirecting twice would overwrite it.
+    if (startedRef.current) return;
+    startedRef.current = true;
+    startLogin().catch((e: unknown) => {
+      setError(e instanceof Error ? e.message : String(e));
+    });
   }, [isAuthed, navigate]);
 
-  const handleLogin = async () => {
-    try {
-      await startLogin();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
+  if (!error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+        <p className="text-sm text-muted-foreground">Redirecting to sign-in…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-xl">OpenEMR Patient Dashboard</CardTitle>
+          <CardTitle className="text-xl">Sign-in failed</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Modern React reimplementation of the OpenEMR patient summary, consuming the FHIR R4 API
-            via OAuth2 + PKCE.
+        <CardContent>
+          <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+            {error}
           </p>
-          {!config.clientId && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-              <strong>Setup required:</strong> register a SMART app at{' '}
-              <code>{config.oauthBase}/registration</code> and rebuild with{' '}
-              <code>VITE_OAUTH_CLIENT_ID</code> set.
-            </div>
-          )}
-          {error && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
-              {error}
-            </div>
-          )}
-          <Button onClick={handleLogin} disabled={!config.clientId} className="w-full">
-            Login
-          </Button>
         </CardContent>
       </Card>
     </div>
