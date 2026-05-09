@@ -16,7 +16,7 @@ export function PatientDashboardPage() {
       <div className="min-h-screen bg-slate-50">
         <AppHeader />
         <PatientHeader patientId={patientId} />
-        <main className="max-w-6xl mx-auto px-6 py-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <main className="max-w-6xl mx-auto px-6 pt-4 pb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <AllergiesCard patientId={patientId} />
           <ProblemListCard patientId={patientId} />
           <MedicationsCard patientId={patientId} />

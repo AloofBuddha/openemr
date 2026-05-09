@@ -14,7 +14,7 @@ export function PatientHeader({ patientId }: Props) {
   if (isLoading) {
     return (
       <div className="bg-white border-b">
-        <div className="max-w-6xl mx-auto px-6 py-4">
+        <div className="max-w-6xl mx-auto px-6 py-3">
           <Skeleton className="h-6 w-48 mb-2" />
           <Skeleton className="h-4 w-72" />
         </div>
@@ -25,7 +25,7 @@ export function PatientHeader({ patientId }: Props) {
   if (isError || !data) {
     return (
       <div className="bg-destructive/5 border-b border-destructive/30">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-2 text-sm text-destructive">
+        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center gap-2 text-sm text-destructive">
           <AlertCircle className="h-4 w-4" />
           <span>Failed to load patient: {error instanceof Error ? error.message : 'unknown'}</span>
         </div>
@@ -39,7 +39,7 @@ export function PatientHeader({ patientId }: Props) {
 
   return (
     <div className="bg-white border-b">
-      <div className="max-w-6xl mx-auto px-6 py-4">
+      <div className="max-w-6xl mx-auto px-6 py-3">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <h1 className="text-xl font-semibold">{patientDisplayName(data)}</h1>
           {active ? (

@@ -19,7 +19,7 @@ export function PatientPickerPage() {
     <AuthGuard>
       <div className="min-h-screen bg-slate-50">
         <AppHeader />
-        <main className="max-w-3xl mx-auto px-6 py-8 space-y-6">
+        <main className="max-w-3xl mx-auto px-6 pt-4 pb-8 space-y-4">
           <div>
             <h1 className="text-2xl font-bold">Patients</h1>
             <p className="text-sm text-muted-foreground">

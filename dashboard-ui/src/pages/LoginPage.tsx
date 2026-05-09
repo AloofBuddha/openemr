@@ -49,7 +49,7 @@ export function LoginPage() {
             </div>
           )}
           <Button onClick={handleLogin} disabled={!config.clientId} className="w-full">
-            Sign in with OpenEMR
+            Login
           </Button>
         </CardContent>
       </Card>

@@ -24,15 +24,18 @@ export const config = {
   // tradeoff documented in PATIENT_DASHBOARD_MIGRATION.md.
   clientId: import.meta.env.VITE_OAUTH_CLIENT_ID ?? '',
   clientSecret: import.meta.env.VITE_OAUTH_CLIENT_SECRET ?? '',
+  // user/* scopes (not patient/*) so OpenEMR shows the provider login
+  // form (username + password) instead of the patient-portal login form
+  // (which requires email + password). The dashboard is a clinician
+  // tool — providers log in, then pick a patient from the picker.
   scope: [
     'openid',
     'offline_access',
-    'launch/patient',
-    'patient/Patient.read',
-    'patient/AllergyIntolerance.read',
-    'patient/Condition.read',
-    'patient/MedicationRequest.read',
-    'patient/CareTeam.read',
-    'patient/Encounter.read',
+    'user/Patient.read',
+    'user/AllergyIntolerance.read',
+    'user/Condition.read',
+    'user/MedicationRequest.read',
+    'user/CareTeam.read',
+    'user/Encounter.read',
   ].join(' '),
 };
