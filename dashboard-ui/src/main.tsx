@@ -18,9 +18,14 @@ declare global {
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
+      staleTime: 5_000,
       retry: 1,
-      refetchOnWindowFocus: false,
+      // Refetch cards every 5s and on tab focus so when the copilot
+      // finishes processing the intake form (which writes back to
+      // OpenEMR's lists/prescriptions tables via intake-process.php),
+      // the cards pick up the new data without a manual refresh.
+      refetchInterval: 5_000,
+      refetchOnWindowFocus: true,
     },
   },
 });

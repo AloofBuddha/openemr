@@ -1,4 +1,3 @@
-import { PatientHeader } from '@/components/PatientHeader';
 import { AllergiesCard } from '@/components/cards/AllergiesCard';
 import { ProblemListCard } from '@/components/cards/ProblemListCard';
 import { MedicationsCard } from '@/components/cards/MedicationsCard';
@@ -10,14 +9,13 @@ interface Props {
   patientId: string;
 }
 
-// Mounted inline inside OpenEMR's demographics.php. We render the
-// patient header (PRD deliverable) + the six clinical cards.
-// OpenEMR's outer chrome (top nav, scheduling, patient tabs) wraps
-// us; our React tree owns just the patient summary content area.
+// Mounted inline inside OpenEMR's demographics.php. The persistent
+// identity bar (name/DOB/sex/MRN/active) is provided by the copilot's
+// PatientSnapshot at the top of the page — we don't duplicate it
+// here. Our tree owns the six clinical cards.
 export function PatientDashboard({ patientId }: Props) {
   return (
     <div className="p-4">
-      <PatientHeader patientId={patientId} />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <AllergiesCard patientId={patientId} />
         <ProblemListCard patientId={patientId} />

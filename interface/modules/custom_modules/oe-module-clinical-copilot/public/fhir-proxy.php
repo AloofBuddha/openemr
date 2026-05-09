@@ -25,6 +25,30 @@
 
 declare(strict_types=1);
 
+// Trap every error in this script and surface it in the JSON body, so
+// debugging from the React side doesn't require log access. Wraps the
+// whole script in a top-level try/catch via a shutdown handler.
+set_error_handler(function ($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) {
+        return false;
+    }
+    throw new \ErrorException($message, 0, $severity, $file, $line);
+});
+register_shutdown_function(function () {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: application/json');
+        }
+        echo json_encode([
+            'error' => 'fatal',
+            'detail' => $err['message'],
+            'where' => basename($err['file']) . ':' . $err['line'],
+        ]);
+    }
+});
+
 require_once dirname(__FILE__, 5) . '/globals.php';
 
 use OpenEMR\Common\Acl\AclMain;
@@ -38,6 +62,7 @@ use OpenEMR\RestControllers\FHIR\FhirMedicationRequestRestController;
 use OpenEMR\RestControllers\FHIR\FhirCareTeamRestController;
 use OpenEMR\RestControllers\FHIR\FhirEncounterRestController;
 use Psr\Http\Message\ResponseInterface;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 /** Resolve an integer OpenEMR pid to the FHIR-shaped patient UUID. */
 function resolvePuuid(string $pid): ?string
@@ -62,7 +87,7 @@ if ($userId <= 0) {
     exit;
 }
 
-if (!CsrfUtils::verifyCsrfToken((string) ($_GET['csrf_token'] ?? ''))) {
+if (!CsrfUtils::verifyCsrfToken((string) ($_GET['csrf_token'] ?? ''), $session)) {
     http_response_code(403);
     echo json_encode(['error' => 'csrf_invalid']);
     exit;
@@ -131,10 +156,14 @@ try {
         ? $controller->getOne($resourceId)
         : $controller->getAll($searchParams, null);
 
-    // OpenEMR's controllers can return either a PSR-7 ResponseInterface
-    // or an associative array depending on the resource — normalize to
-    // a JSON body + status code.
-    if ($response instanceof ResponseInterface) {
+    // OpenEMR's controllers return Symfony JsonResponse (Patient via
+    // handleFhirProcessingResult), PSR-7 ResponseInterface, or a
+    // FhirBundle / array shape (AllergyIntolerance et al via
+    // responseHandler). Normalize all three to a JSON body + status.
+    if ($response instanceof SymfonyResponse) {
+        http_response_code($response->getStatusCode());
+        echo $response->getContent();
+    } elseif ($response instanceof ResponseInterface) {
         http_response_code($response->getStatusCode());
         echo (string) $response->getBody();
     } else {
