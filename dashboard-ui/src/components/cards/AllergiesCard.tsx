@@ -4,8 +4,21 @@ import { useAllergies, fhirEntries } from '@/fhir/hooks';
 import type { AllergyIntolerance } from '@/fhir/types';
 import { slug } from '@/lib/format';
 
+function stripXhtml(div: string | undefined): string | undefined {
+  if (!div) return undefined;
+  const text = div.replace(/<[^>]+>/g, '').trim();
+  return text || undefined;
+}
+
 function describe(a: AllergyIntolerance): string {
-  return a.code?.text ?? a.code?.coding?.[0]?.display ?? a.code?.coding?.[0]?.code ?? '—';
+  // OpenEMR's FHIR allergy mapper sets code.coding[0].display = "Unknown"
+  // when there's no SNOMED code (most intake-form-derived allergies).
+  // The actual allergen name lives in the resource-level Narrative.
+  const codeDisplay = a.code?.text ?? a.code?.coding?.[0]?.display;
+  const narrative = stripXhtml(a.text?.div);
+  const isUnknown = !codeDisplay || codeDisplay.toLowerCase() === 'unknown';
+  if (isUnknown && narrative) return narrative;
+  return codeDisplay ?? narrative ?? a.code?.coding?.[0]?.code ?? '—';
 }
 
 function reactionText(a: AllergyIntolerance): string | undefined {

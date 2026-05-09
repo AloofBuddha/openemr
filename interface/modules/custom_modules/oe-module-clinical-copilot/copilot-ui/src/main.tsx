@@ -25,11 +25,19 @@ window.copilotInit = (pid, apiUrl, csrfToken, physicianId, webRoot, categories) 
   if (widget.dataset.copilotInitialized) return;
   widget.dataset.copilotInitialized = '1';
 
-  // Move to top of .main div (full-width, above two-column card layout)
+  // Place the widget so the patient identity bar sits at the very top:
+  // [#patient-snapshot-root] → [copilot widget (chat)] → [#patient-dashboard-root]
+  // If the snapshot mount exists (Week 2 layout), insert AFTER it.
+  // Otherwise fall back to top-of-.main (legacy/standalone copilot).
   const mainDiv =
     document.querySelector<HTMLElement>('.main.mb-1') ??
     document.querySelector<HTMLElement>('.main');
-  if (mainDiv) mainDiv.insertBefore(widget, mainDiv.firstChild);
+  const snapshotRoot = document.getElementById('patient-snapshot-root');
+  if (snapshotRoot && snapshotRoot.parentNode) {
+    snapshotRoot.parentNode.insertBefore(widget, snapshotRoot.nextSibling);
+  } else if (mainDiv) {
+    mainDiv.insertBefore(widget, mainDiv.firstChild);
+  }
 
   widget.style.display = '';
   createRoot(widget).render(

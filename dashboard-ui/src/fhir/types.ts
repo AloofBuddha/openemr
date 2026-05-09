@@ -59,9 +59,15 @@ export interface Patient {
   telecom?: { system?: string; value?: string; use?: string }[];
 }
 
+export interface Narrative {
+  status?: string;
+  div?: string;
+}
+
 export interface AllergyIntolerance {
   resourceType: 'AllergyIntolerance';
   id: string;
+  text?: Narrative;
   clinicalStatus?: CodeableConcept;
   verificationStatus?: CodeableConcept;
   category?: string[];

@@ -1,7 +1,6 @@
 import { AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
 
 interface Props<T> {
   /** DOM id used by the copilot SourceDrawer's "View in chart" scroll target. */
@@ -38,14 +37,7 @@ export function ClinicalCard<T>({
   return (
     <Card id={id}>
       <CardHeader className="flex-row items-center justify-between space-y-0">
-        <div className="flex items-center gap-2">
-          <CardTitle>{title}</CardTitle>
-          {!isLoading && !isError && (
-            <Badge variant="secondary" className="text-[11px] px-1.5">
-              {items.length}
-            </Badge>
-          )}
-        </div>
+        <CardTitle>{title}</CardTitle>
         {action}
       </CardHeader>
       <CardContent className="p-0">
