@@ -49,7 +49,7 @@ function _matchResult(
 ): ExtractedResult | null {
   if (!results || results.length === 0) return null;
   const phrase = citedText.trim().toLowerCase();
-  if (!phrase) return results.find(r => r.bbox) ?? null;
+  if (!phrase) return null;
 
   const norm = (s: string | null | undefined) => (s ?? '').toLowerCase();
   const tokens = phrase.split(/\s+/)
@@ -74,8 +74,12 @@ function _matchResult(
       bestScore = score;
     }
   }
-  if (best) return best;
-  return results.find(r => r.bbox) ?? null;
+  // If no token / phrase actually matched, return null instead of the
+  // first bbox'd result. Otherwise every "Below threshold" / "Optimal"
+  // / "Reference range" citation would silently feature whichever
+  // result happens to be first in the list (almost always Cholesterol),
+  // leading to wrong-value highlights and chip labels.
+  return bestScore > 0 ? best : null;
 }
 
 // Build the agent-page.php URL. When bbox is supplied, request a cropped
