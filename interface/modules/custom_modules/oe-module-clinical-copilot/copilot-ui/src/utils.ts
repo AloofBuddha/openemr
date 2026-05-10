@@ -12,6 +12,21 @@ import type {
 export const uid = (): string =>
   `m${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
+// Slug helpers — must match the encodings in PatientSnapshot.tsx,
+// PatientContextBuilder.php, and dashboard-ui lib/format.ts so chat
+// citations and snapshot chips both find the same dashboard card row.
+export const _slug = (s: string): string =>
+  (s ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+export const _medSlug = (drugLabel: string): string => {
+  const beforeComma = (drugLabel ?? '').split(',')[0];
+  const beforeDose = beforeComma.replace(/\s+\d.*$/, '');
+  return _slug(beforeDose);
+};
+
 export const todayKey = (): string => new Date().toISOString().slice(0, 10);
 
 export function formatApptTime(t: string): string {
@@ -96,7 +111,9 @@ export function buildNumberedPatientContext(snap: Snapshot | null): NumberedCont
         { key: 'ICD-10', value: p.icd10 },
         { key: 'Since',  value: p.since },
       ].filter(f => f.value),
-      scroll_to: '#medical_problem_ps_expand',
+      // Match the React dashboard's row id (must agree with PHP slug
+      // and PatientSnapshot's slug — three encodings, one shape).
+      scroll_to: `#card-problems-row-${_slug(p.title)}`,
       source_link: p.source_link ?? null,
       openemr_doc_id: p.source_link?.doc_id,
     };
@@ -113,7 +130,7 @@ export function buildNumberedPatientContext(snap: Snapshot | null): NumberedCont
         { key: 'Drug', value: m.drug },
         { key: 'Dose', value: m.dosage },
       ].filter(f => f.value),
-      scroll_to: '#prescriptions_ps_expand',
+      scroll_to: `#card-medications-row-${_medSlug(m.drug)}`,
       source_link: m.source_link ?? null,
       openemr_doc_id: m.source_link?.doc_id,
     };
@@ -129,7 +146,7 @@ export function buildNumberedPatientContext(snap: Snapshot | null): NumberedCont
         { key: 'Reaction', value: a.reaction },
         { key: 'Severity', value: a.severity },
       ].filter(f => f.value),
-      scroll_to: '#allergy_ps_expand',
+      scroll_to: `#card-allergies-row-${_slug(a.title)}`,
       source_link: a.source_link ?? null,
       openemr_doc_id: a.source_link?.doc_id,
     };
@@ -147,7 +164,9 @@ export function buildNumberedPatientContext(snap: Snapshot | null): NumberedCont
           const sp = p.indexOf(' ');
           return sp === -1 ? { key: p, value: '' } : { key: p.slice(0, sp), value: p.slice(sp + 1) };
         }),
-        scroll_to: '#vitals_ps_expand',
+        // No vitals card in the React dashboard yet — empty
+        // scroll_to hides "View in chart".
+        scroll_to: '',
       };
       lines.push(`[${idx}] Vitals: ${vitalParts.join(', ')}`);
       idx++;
@@ -164,7 +183,9 @@ export function buildNumberedPatientContext(snap: Snapshot | null): NumberedCont
         { key: 'Flag',      value: l.abnormal || 'Within range' },
         { key: 'Collected', value: l.date },
       ].filter(f => f.value),
-      scroll_to: '#labdata_ps_expand',
+      // No labs card in the React dashboard yet — empty scroll_to
+      // hides "View in chart" so we don't surface a dead button.
+      scroll_to: '',
     };
     lines.push(
       `[${idx}] Lab: ${label}` +
