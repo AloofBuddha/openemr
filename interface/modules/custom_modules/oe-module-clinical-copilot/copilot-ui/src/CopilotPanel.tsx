@@ -74,9 +74,13 @@ export function CopilotPanel({
   // Auto-scroll to the latest message — but only when the user is already
   // pinned to the bottom. If they've scrolled up to read prior content,
   // we don't pull the view down on every streaming delta.
+  // Use scrollTop on the inner message container instead of
+  // scrollIntoView, so streaming deltas don't yank the outer page
+  // when the user is reading the dashboard cards. The copilot
+  // self-contains its scroll; the rest of the page stays put.
   useEffect(() => {
-    if (stickToBottomRef.current) {
-      messagesEndRef.current?.scrollIntoView({ block: 'nearest' });
+    if (stickToBottomRef.current && messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
   }, [messages]);
 
@@ -114,7 +118,9 @@ export function CopilotPanel({
   // doesn't hit a temporal dead zone on first render.
   const snapToBottom = useCallback((): void => {
     stickToBottomRef.current = true;
-    messagesEndRef.current?.scrollIntoView({ block: 'nearest' });
+    if (messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    }
   }, []);
 
   const handleSend = useCallback((): void => {
