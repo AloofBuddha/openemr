@@ -129,25 +129,28 @@ export function SourceDrawer({
   // OpenEMR uses jQuery + Bootstrap collapse for its expandable cards.
   // If the section we're scrolling into is currently collapsed, expand it
   // first so the highlight is actually visible.
-  // OpenEMR uses jQuery + Bootstrap collapse for its expandable cards.
-  // If the section we're scrolling into is currently collapsed, expand
-  // it first so the highlight is actually visible. For the new React
-  // patient-dashboard cards, scroll_to points at a specific row id
-  // (e.g. `#card-allergies-row-penicillin`) so the highlight lands on
-  // the matching row instead of the entire card container.
+  // For the React patient-dashboard cards, scroll_to points at a
+  // specific row id (e.g. `#card-allergies-row-penicillin`). Try exact
+  // match first; fall back to prefix match so chat citations whose
+  // PHP-emitted slug doesn't perfectly line up with the FHIR-derived
+  // row id (e.g. "aspirin-baby" vs "aspirin-baby-81-mg") still scroll
+  // to the right vicinity.
   const handleScrollTo = (): void => {
     if (!source.scroll_to) return;
-    const el = document.querySelector<HTMLElement>(source.scroll_to);
-    if (!el) return;
-    const jq = (window as unknown as Record<string, unknown>).$;
-    if (typeof jq === 'function') {
-      const $el = (jq as CallableFunction)(el);
-      if ($el.hasClass('collapse') && !$el.hasClass('show')) $el.collapse('show');
+    let el = document.querySelector<HTMLElement>(source.scroll_to);
+    if (!el && source.scroll_to.startsWith('#')) {
+      const idPrefix = source.scroll_to.slice(1);
+      el = document.querySelector<HTMLElement>(`[id^="${CSS.escape(idPrefix)}-"]`)
+        ?? document.querySelector<HTMLElement>(`[id^="${CSS.escape(idPrefix)}"]`);
+    }
+    if (!el) {
+      console.log('[copilot] view-in-chart target not found for selector:', source.scroll_to);
+      return;
     }
     setTimeout(() => {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el.classList.add('copilot-scroll-flash');
-      setTimeout(() => el.classList.remove('copilot-scroll-flash'), SCROLL_FLASH_MS);
+      el!.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el!.classList.add('copilot-scroll-flash');
+      setTimeout(() => el!.classList.remove('copilot-scroll-flash'), SCROLL_FLASH_MS);
     }, 50);
   };
 

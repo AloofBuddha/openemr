@@ -29,6 +29,32 @@ namespace OpenEMR\Modules\ClinicalCopilot\Agent;
 final class PatientContextBuilder
 {
     /**
+     * Slug a label so PHP-emitted scroll targets line up with the React
+     * dashboard's card row ids. Must stay byte-for-byte identical to
+     * slug() in copilot-ui PatientSnapshot.tsx and dashboard-ui
+     * lib/format.ts — these three encodings have to agree or
+     * "View in chart" can't find the row.
+     */
+    private static function slug(string $s): string
+    {
+        $lower = strtolower($s);
+        $hyphenated = preg_replace('/[^a-z0-9]+/', '-', $lower) ?? '';
+        return trim($hyphenated, '-');
+    }
+
+    /**
+     * Strip dose / frequency / notes from a medication label so we slug
+     * just the drug name (matches what the snapshot emits as `m.drug`).
+     * "Aspirin (baby) 81 mg daily, with food" → "Aspirin (baby)".
+     */
+    private static function medNameSlug(string $drug): string
+    {
+        $beforeComma = explode(',', $drug)[0];
+        $beforeDose = preg_replace('/\s+\d.*$/', '', $beforeComma) ?? $beforeComma;
+        return self::slug($beforeDose);
+    }
+
+    /**
      * @param array<string,mixed> $patientData
      * @return array{
      *   message: string,
@@ -150,7 +176,10 @@ TEXT;
                 ['key' => 'Time',   'value' => $appt['time'] ?? ''],
                 ['key' => 'Reason', 'value' => $reason],
             ]),
-            'scroll_to' => '#appointments_ps_expand',
+            // Appointments card not yet in React dashboard — closest
+            // match is encounters; chat citations for upcoming visits
+            // scroll to the encounter list.
+            'scroll_to' => '#card-encounters',
         ];
         $lines[] = "[{$idx}] Today's appointment: {$reason}";
         return $idx + 1;
@@ -190,7 +219,10 @@ TEXT;
                 ['key' => 'Assessment',  'value' => $assessment],
                 ['key' => 'Plan',        'value' => $plan],
             ]),
-            'scroll_to' => '#appointments_ps_expand',
+            // Appointments card not yet in React dashboard — closest
+            // match is encounters; chat citations for upcoming visits
+            // scroll to the encounter list.
+            'scroll_to' => '#card-encounters',
         ];
         $lines[] = "[{$idx}] Last encounter ({$encDate}): " . ($assessment ?: 'No assessment');
         return $idx + 1;
@@ -208,7 +240,7 @@ TEXT;
                 'type'      => 'medication',
                 'label'     => 'Active medications',
                 'fields'    => [['key' => 'Note', 'value' => 'None documented']],
-                'scroll_to' => '#prescriptions_ps_expand',
+                'scroll_to' => '#card-medications',
             ];
             $lines[] = "[{$idx}] Medications: none documented";
             return $idx + 1;
@@ -226,7 +258,7 @@ TEXT;
                     ['key' => 'Frequency', 'value' => $med['interval'] ?? ''],
                     ['key' => 'Notes',     'value' => $med['note'] ?? ''],
                 ]),
-                'scroll_to' => '#prescriptions_ps_expand',
+                'scroll_to' => '#card-medications-row-' . self::medNameSlug($med['drug'] ?? ''),
             ], $med['source_link'] ?? null);
             $lines[] = "[{$idx}] Medication: {$label}" . ($med['interval'] ? " ({$med['interval']})" : '');
             $idx++;
@@ -246,7 +278,9 @@ TEXT;
                 'type'      => 'lab',
                 'label'     => 'Recent labs',
                 'fields'    => [['key' => 'Note', 'value' => 'None on file']],
-                'scroll_to' => '#labdata_ps_expand',
+                // No labs card in the React dashboard yet — empty
+                // scroll_to hides the "View in chart" button.
+                'scroll_to' => '',
             ];
             $lines[] = "[{$idx}] Labs: none on file";
             return $idx + 1;
@@ -266,7 +300,9 @@ TEXT;
                     ['key' => 'Status',    'value' => $status],
                     ['key' => 'Collected', 'value' => $lab['date_collected'] ?? ''],
                 ]),
-                'scroll_to' => '#labdata_ps_expand',
+                // No labs card in the React dashboard yet — empty
+                // scroll_to hides the "View in chart" button.
+                'scroll_to' => '',
             ];
             $flag    = $lab['abnormal'] ? " [ABNORMAL: {$lab['abnormal']}]" : '';
             $lines[] = "[{$idx}] Lab: {$label}{$flag}" . ($lab['date_collected'] ? " — {$lab['date_collected']}" : '');
@@ -287,7 +323,7 @@ TEXT;
                 'type'      => 'problem',
                 'label'     => 'Active problems',
                 'fields'    => [['key' => 'Note', 'value' => 'None documented']],
-                'scroll_to' => '#medical_problem_ps_expand',
+                'scroll_to' => '#card-problems',
             ];
             $lines[] = "[{$idx}] Problems: none documented";
             return $idx + 1;
@@ -303,7 +339,7 @@ TEXT;
                     ['key' => 'ICD-10',    'value' => $prob['icd10']],
                     ['key' => 'Since',     'value' => $prob['since']],
                 ]),
-                'scroll_to' => '#medical_problem_ps_expand',
+                'scroll_to' => '#card-problems-row-' . self::slug($prob['title'] ?? ''),
             ], $prob['source_link'] ?? null);
             $lines[] = "[{$idx}] Problem: {$label}";
             $idx++;
@@ -323,7 +359,7 @@ TEXT;
                 'type'      => 'allergy',
                 'label'     => 'Allergies',
                 'fields'    => [['key' => 'Note', 'value' => 'None documented']],
-                'scroll_to' => '#allergy_ps_expand',
+                'scroll_to' => '#card-allergies',
             ];
             $lines[] = "[{$idx}] Allergies: none documented";
             return $idx + 1;
@@ -338,7 +374,7 @@ TEXT;
                     ['key' => 'Reaction', 'value' => $allergy['reaction'] ?? ''],
                     ['key' => 'Severity', 'value' => $allergy['severity'] ?? ''],
                 ]),
-                'scroll_to' => '#allergy_ps_expand',
+                'scroll_to' => '#card-allergies-row-' . self::slug($allergy['title'] ?? ''),
             ], $allergy['source_link'] ?? null);
             $lines[] = "[{$idx}] Allergy: {$allergy['title']}"
                 . (!empty($allergy['reaction']) ? " → {$allergy['reaction']}" : '');

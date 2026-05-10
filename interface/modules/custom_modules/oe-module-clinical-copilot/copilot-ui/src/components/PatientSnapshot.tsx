@@ -20,8 +20,8 @@ interface Props {
 // Slug a label into a row id matching the React dashboard's card row
 // IDs (e.g. "Penicillin" -> "penicillin", "Type 2 Diabetes" -> "type-2-diabetes").
 // Must stay byte-for-byte identical to the slug() in
-// dashboard-ui/src/lib/format.ts; the two encodings have to agree
-// or the snapshot chip's scroll target won't match the card row id.
+// dashboard-ui/src/lib/format.ts and PatientContextBuilder.php; the
+// three encodings have to agree.
 const slug = (s: string): string =>
   (s ?? '')
     .toLowerCase()
@@ -30,9 +30,22 @@ const slug = (s: string): string =>
 
 const SCROLL_FLASH_MS = 1400;
 
+// Try exact match first, then prefix match. Snapshot/PHP slug from
+// the drug name ("Aspirin (baby)") while the card slug includes the
+// dose ("aspirin-baby-81-mg") in some intake-form-derived rows;
+// prefix match closes that gap.
 const scrollToCardRow = (selector: string): void => {
-  const el = document.querySelector<HTMLElement>(selector);
-  if (!el) return;
+  if (!selector) return;
+  let el = document.querySelector<HTMLElement>(selector);
+  if (!el && selector.startsWith('#')) {
+    const idPrefix = selector.slice(1);
+    el = document.querySelector<HTMLElement>(`[id^="${CSS.escape(idPrefix)}-"]`)
+      ?? document.querySelector<HTMLElement>(`[id^="${CSS.escape(idPrefix)}"]`);
+  }
+  if (!el) {
+    console.log('[copilot] scroll target not found for selector:', selector);
+    return;
+  }
   el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   el.classList.add('copilot-scroll-flash');
   setTimeout(() => el.classList.remove('copilot-scroll-flash'), SCROLL_FLASH_MS);
