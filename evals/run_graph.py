@@ -14,8 +14,12 @@ Five rubrics per case (PRD-aligned):
 
 Run:
     cd evals && ../copilot-agent/.venv/bin/python run_graph.py
-    add --report graph_results.md to write a readable report
+    add --report PATH to write a per-suite markdown report
     add --case <id> to run a single case
+
+Note: prefer ``check_gate.py`` for the canonical workflow — it runs all
+three suites (brief + followup, extraction, graph) and writes one
+consolidated ``eval_results.md`` you can review in a single doc.
 """
 from __future__ import annotations
 
@@ -869,6 +873,117 @@ def _write_markdown_report(case_results: list[dict],
 
 
 # ---------------------------------------------------------------------------
+# LangSmith mode — push dataset + run experiment
+# ---------------------------------------------------------------------------
+
+
+LANGSMITH_DATASET = "w2-multi-agent-graph"
+
+
+def _ensure_langsmith_dataset(client, cases: list[GraphCase], reset: bool) -> str:
+    """Create the LangSmith dataset if missing, or reset it if requested."""
+    if reset and client.has_dataset(dataset_name=LANGSMITH_DATASET):
+        client.delete_dataset(dataset_name=LANGSMITH_DATASET)
+        print(f"Deleted existing dataset '{LANGSMITH_DATASET}'")
+
+    if not client.has_dataset(dataset_name=LANGSMITH_DATASET):
+        ds = client.create_dataset(
+            LANGSMITH_DATASET,
+            description=(
+                "W2 multi-agent graph — 20 cases covering pure-RAG queries, lab-PDF "
+                "extraction + answer assembly, intake-form extraction, mixed "
+                "[[P]]/[[D]]/[[G]] citation classes, refusal cases, and PHI containment. "
+                "Each example carries a case_id; the target callable in run_graph.py "
+                "looks up the full GraphCase by id and re-seeds the extraction cache."
+            ),
+        )
+        client.create_examples(
+            dataset_id=ds.id,
+            inputs=[{
+                "case_id": c.id,
+                "query": c.query,
+                "patient_context": c.patient_context,
+                "doc_ids": c.doc_ids,
+                # pre_extracted is JSON-safe (already dicts) — LangSmith stores it
+                # so the experiment is self-describing if the user opens an example.
+                "pre_extracted": c.pre_extracted,
+            } for c in cases],
+            outputs=[{
+                "expected_facts": c.expected_facts,
+                "forbidden_facts": c.forbidden_facts,
+                "expects_guideline_citation": c.expects_guideline_citation,
+                "expects_doc_citation": c.expects_doc_citation,
+                "is_refusal_case": c.is_refusal_case,
+                "phi_strings": c.phi_strings,
+            } for c in cases],
+            metadata=[{"description": c.description} for c in cases],
+        )
+        print(f"Created LangSmith dataset '{LANGSMITH_DATASET}' with {len(cases)} examples")
+    else:
+        n = sum(1 for _ in client.list_examples(dataset_name=LANGSMITH_DATASET))
+        print(f"Using existing dataset '{LANGSMITH_DATASET}' ({n} examples). "
+              f"Pass --reset-dataset to recreate.")
+
+    return LANGSMITH_DATASET
+
+
+async def run_with_langsmith(reset_dataset: bool = False) -> int:
+    """Push the dataset and run an experiment against it. Each rubric becomes a
+    feedback key on the LangSmith run, so the experiment shows per-case + per-rubric
+    pass rates in the UI without us re-implementing the dashboard."""
+    try:
+        from langsmith import Client
+        from langsmith.evaluation import aevaluate
+    except ImportError:
+        print("langsmith not installed — falling back to offline mode", file=sys.stderr)
+        return await _main_async(None, None, None)
+
+    cases = _build_cases()
+    case_by_id = {c.id: c for c in cases}
+
+    client = Client()
+    dataset_name = _ensure_langsmith_dataset(client, cases, reset=reset_dataset)
+
+    graph, deps_label, seeded = _build_graph_for_evals()
+
+    # Target callable — LangSmith hands us each example's `inputs` dict
+    async def target(inputs: dict) -> dict:
+        case = case_by_id[inputs["case_id"]]
+        seeded.clear()
+        for d in case.pre_extracted:
+            seeded[d["openemr_doc_id"]] = d
+        return await _run_one(case, graph, deps_label)
+
+    # Adapt our (case, result) → {key, score, comment} rubrics to LangSmith's
+    # (run, example) signature. Reconstructing the case from `case_by_id`
+    # keeps the rubrics literally identical between offline and LangSmith modes.
+    def make_evaluator(rubric):
+        def fn(run, example):
+            case = case_by_id[example.inputs["case_id"]]
+            return rubric(case, run.outputs)
+        fn.__name__ = rubric.__name__.lstrip("_")
+        return fn
+
+    print(f"\nRunning {len(cases)} W2 graph cases via LangSmith ({deps_label})\n{'='*60}")
+    await aevaluate(
+        target,
+        data=dataset_name,
+        evaluators=[make_evaluator(r) for r in RUBRICS],
+        experiment_prefix="w2-graph",
+        metadata={
+            "deps": deps_label,
+            "model_supervisor": "claude-haiku-4-5-20251001",
+            "model_answer": "claude-sonnet-4-6",
+        },
+        max_concurrency=1,
+    )
+    project = os.getenv("LANGCHAIN_PROJECT", "agent-forge")
+    print(f"\n→ Experiment stored in LangSmith project '{project}'")
+    print(f"→ View at: https://smith.langchain.com/")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -880,7 +995,15 @@ if __name__ == "__main__":
                         help="Write a markdown report to FILE")
     parser.add_argument("--json", dest="json_path", metavar="FILE",
                         help="Write raw results JSON to FILE")
+    parser.add_argument("--langsmith", action="store_true",
+                        help="Push dataset + run experiment in LangSmith "
+                             "(viewable under Datasets & Experiments)")
+    parser.add_argument("--reset-dataset", action="store_true",
+                        help="Delete and recreate the LangSmith dataset before running")
     args = parser.parse_args()
 
-    rc = asyncio.run(_main_async(args.case, args.report, args.json_path))
+    if args.langsmith:
+        rc = asyncio.run(run_with_langsmith(reset_dataset=args.reset_dataset))
+    else:
+        rc = asyncio.run(_main_async(args.case, args.report, args.json_path))
     sys.exit(rc)

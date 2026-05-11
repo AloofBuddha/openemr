@@ -64,6 +64,31 @@
     "pct": 80.0,
     "total": 25
   },
+  "extraction.bbox_capture": {
+    "passed": 8,
+    "pct": 100.0,
+    "total": 8
+  },
+  "extraction.expected_count_matched": {
+    "passed": 8,
+    "pct": 100.0,
+    "total": 8
+  },
+  "extraction.expected_values_present": {
+    "passed": 8,
+    "pct": 100.0,
+    "total": 8
+  },
+  "extraction.no_phi_in_logs": {
+    "passed": 8,
+    "pct": 100.0,
+    "total": 8
+  },
+  "extraction.schema_valid": {
+    "passed": 8,
+    "pct": 100.0,
+    "total": 8
+  },
   "followup.followup_acknowledges_out_of_scope": {
     "passed": 10,
     "pct": 100.0,

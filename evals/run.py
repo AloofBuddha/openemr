@@ -9,7 +9,11 @@ Run:
 LangSmith traces every run and stores results under LANGCHAIN_PROJECT.
 Pass --offline to skip LangSmith (prints results to stdout instead).
 Pass --followup to also run multi-turn adversarial cases.
-Pass --report eval_results.md to write a readable markdown report.
+Pass --report PATH to write a per-suite markdown report.
+
+Note: prefer ``check_gate.py`` for the canonical workflow — it runs all
+three suites (brief + followup, extraction, graph) and writes one
+consolidated ``eval_results.md`` you can review in a single doc.
 """
 
 import argparse

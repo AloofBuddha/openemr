@@ -27,7 +27,8 @@ BRIEF_RESULTS = ROOT / "brief_gate_results.json"
 def _run_gate(extra_args: list[str] | None = None) -> tuple[int, str]:
     """Run check_gate.py and return (exit_code, stdout)."""
     args = [sys.executable, str(ROOT / "check_gate.py"),
-            "--skip-brief", "--skip-graph"]
+            "--skip-brief", "--skip-extraction", "--skip-graph",
+            "--no-report"]
     if extra_args:
         args.extend(extra_args)
     proc = subprocess.run(args, cwd=str(ROOT), capture_output=True, text=True)

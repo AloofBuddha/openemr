@@ -8,7 +8,11 @@ extractor itself: schema, field count, specific value presence, bbox
 capture rate, and PHI-in-logs.
 
 Run:
-    cd evals && ../copilot-agent/.venv/bin/python run_extraction.py --report extraction_results.md
+    cd evals && ../copilot-agent/.venv/bin/python run_extraction.py --report PATH
+
+Note: prefer ``check_gate.py`` for the canonical workflow — it runs all
+three suites (brief + followup, extraction, graph) and writes one
+consolidated ``eval_results.md`` you can review in a single doc.
 """
 from __future__ import annotations
 
@@ -496,13 +500,130 @@ def _write_markdown_report(case_results: list[dict],
 # ---------------------------------------------------------------------------
 
 
+LANGSMITH_DATASET = "w2-document-extraction"
+
+
+def _ensure_langsmith_dataset(client, cases: list[ExtractionCase], reset: bool) -> str:
+    """Create the LangSmith dataset if missing, or reset it if requested.
+
+    PDF/PNG bytes are NOT uploaded to LangSmith — examples store the case_id
+    plus a relative fixture path. The target callable looks up the full case
+    locally by id and reads bytes from disk.
+    """
+    if reset and client.has_dataset(dataset_name=LANGSMITH_DATASET):
+        client.delete_dataset(dataset_name=LANGSMITH_DATASET)
+        print(f"Deleted existing dataset '{LANGSMITH_DATASET}'")
+
+    if not client.has_dataset(dataset_name=LANGSMITH_DATASET):
+        ds = client.create_dataset(
+            LANGSMITH_DATASET,
+            description=(
+                "Document extraction — 8 fixtures: typed lab PDFs (lipid, CBC, CMP), "
+                "image-only labs (HbA1c PNG), typed intake forms (Chen, Whitaker), "
+                "and challenging scans (Reyes, Kowalski). Tests pdfplumber + Haiku "
+                "Vision extraction paths against schema/value/bbox expectations."
+            ),
+        )
+        repo_root = Path(__file__).resolve().parent.parent
+        client.create_examples(
+            dataset_id=ds.id,
+            inputs=[{
+                "case_id": c.id,
+                "doc_type": c.doc_type,
+                "mimetype": c.mimetype,
+                # path relative to repo root so the dataset is portable
+                "fixture": str(c.file.relative_to(repo_root)),
+                "patient_id": c.patient_id,
+                "openemr_doc_id": c.openemr_doc_id,
+            } for c in cases],
+            outputs=[{
+                "expected_field_count": c.expected_field_count,
+                "expected_values": c.expected_values,
+                "bbox_min_ratio": c.bbox_min_ratio,
+                "phi_strings": c.phi_strings,
+            } for c in cases],
+            metadata=[{"description": c.description} for c in cases],
+        )
+        print(f"Created LangSmith dataset '{LANGSMITH_DATASET}' with {len(cases)} examples")
+    else:
+        n = sum(1 for _ in client.list_examples(dataset_name=LANGSMITH_DATASET))
+        print(f"Using existing dataset '{LANGSMITH_DATASET}' ({n} examples). "
+              f"Pass --reset-dataset to recreate.")
+
+    return LANGSMITH_DATASET
+
+
+async def run_with_langsmith(reset_dataset: bool = False) -> int:
+    """Push the dataset and run an experiment. Each rubric becomes a feedback
+    key on the LangSmith run."""
+    try:
+        from langsmith import Client
+        from langsmith.evaluation import aevaluate
+    except ImportError:
+        print("langsmith not installed — falling back to offline mode", file=sys.stderr)
+        return await _main_async(None, None, None)
+
+    cases = _build_cases()
+    case_by_id = {c.id: c for c in cases}
+
+    client = Client()
+    dataset_name = _ensure_langsmith_dataset(client, cases, reset=reset_dataset)
+
+    anthropic_client = _make_client()
+
+    async def target(inputs: dict) -> dict:
+        case = case_by_id[inputs["case_id"]]
+        return await _run_one(case, anthropic_client)
+
+    # Adapt rubrics — for extraction we have two evaluator shapes:
+    # the four "regular" rubrics take (case, result), and _eval_no_phi_in_logs
+    # takes (case, log_blob). Both wrap to LangSmith's (run, example) shape.
+    def make_evaluator(rubric):
+        def fn(run, example):
+            case = case_by_id[example.inputs["case_id"]]
+            result = (run.outputs or {}).get("result", {})
+            return rubric(case, result)
+        fn.__name__ = rubric.__name__.lstrip("_")
+        return fn
+
+    def phi_evaluator(run, example):
+        case = case_by_id[example.inputs["case_id"]]
+        log_blob = (run.outputs or {}).get("log_blob", "")
+        return _eval_no_phi_in_logs(case, log_blob)
+
+    print(f"\nRunning {len(cases)} extraction cases via LangSmith\n{'='*60}")
+    await aevaluate(
+        target,
+        data=dataset_name,
+        evaluators=[make_evaluator(r) for r in RUBRICS] + [phi_evaluator],
+        experiment_prefix="w2-extraction",
+        metadata={
+            "model_text": "claude-haiku-4-5-20251001",
+            "model_vision": "claude-haiku-4-5-20251001",
+        },
+        max_concurrency=1,
+    )
+    project = os.getenv("LANGCHAIN_PROJECT", "agent-forge")
+    print(f"\n→ Experiment stored in LangSmith project '{project}'")
+    print(f"→ View at: https://smith.langchain.com/")
+    return 0
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", help="Run only the case with this id")
     parser.add_argument("--report", metavar="FILE", help="Write a markdown report to FILE")
     parser.add_argument("--json", dest="json_path", metavar="FILE",
                         help="Write raw results JSON to FILE")
+    parser.add_argument("--langsmith", action="store_true",
+                        help="Push dataset + run experiment in LangSmith "
+                             "(viewable under Datasets & Experiments)")
+    parser.add_argument("--reset-dataset", action="store_true",
+                        help="Delete and recreate the LangSmith dataset before running")
     args = parser.parse_args()
 
-    rc = asyncio.run(_main_async(args.case, args.report, args.json_path))
+    if args.langsmith:
+        rc = asyncio.run(run_with_langsmith(reset_dataset=args.reset_dataset))
+    else:
+        rc = asyncio.run(_main_async(args.case, args.report, args.json_path))
     sys.exit(rc)

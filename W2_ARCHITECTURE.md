@@ -1,8 +1,10 @@
 # W2 Architecture: Multimodal Evidence Agent
 
 **Sprint:** Week 2 — AgentForge Clinical Co-Pilot
-**Date:** 2026-05-04
+**Date:** 2026-05-09 (final-submission revision)
+**Deployed:** https://198.211.103.246.nip.io  (Caddy HTTPS · sidecar systemd)
 **Builds on:** `ARCHITECTURE.md` (Week 1 single-agent brief)
+**Companion docs:** `PATIENT_DASHBOARD_MIGRATION.md` (surprise-challenge React port), `COST_ANALYSIS.md` (cost + p50/p95 latency)
 **Traces to:** `USERS.md` UC-1 (pre-encounter brief), UC-2 (medication review), UC-4 (lab trends)
 
 ---
@@ -27,68 +29,107 @@ Week 2 adds three capabilities on top of that foundation without replacing it.
 
 ## 1. System Overview
 
+The current architecture, end to end. Three browser surfaces share the same origin as OpenEMR; a thin PHP module owns auth and audit; a Python FastAPI sidecar (internal-only) owns the multi-agent graph, document extraction, and RAG; storage and external APIs are separated so PHI can be reasoned about explicitly.
+
+```mermaid
+flowchart TB
+  %% ─── Frontends ─────────────────────────────────────────────────────
+  subgraph Browser["Browser — clinic workstation, same origin"]
+    direction LR
+    DASH["<b>Dashboard SPA</b><br/>dashboard-ui/<br/>React · Vite · TanStack Query<br/>identity bar + 6 FHIR cards<br/>(Allergies · Problems · Meds ·<br/>Prescriptions · Care Team · Encounters)"]
+    CP["<b>Co-Pilot Panel</b><br/>copilot-ui/<br/>mounted in patient chart<br/>SSE answer stream · upload modal<br/>cropped-PDF source drawer<br/>[[PN]] [[DN]] [[GN]] chips"]
+  end
+
+  %% ─── PHP module ────────────────────────────────────────────────────
+  subgraph PHP["PHP Module — session auth · PatientAccessGuard · audit log writer"]
+    direction LR
+    UP["upload.php<br/>Document::createDocument<br/>SHA3-512 dedup"]
+    AQ["agent-query.php<br/>SSE proxy"]
+    IP["intake-process.php<br/>auto-ingest of front-desk PDFs"]
+    FP["fhir-proxy.php<br/>same-origin FHIR<br/>session-authenticated"]
+  end
+
+  %% ─── Python sidecar ────────────────────────────────────────────────
+  subgraph Sidecar["Python FastAPI Sidecar — copilot-agent/  (localhost:8400, internal only)"]
+    direction TB
+    subgraph Graph["LangGraph multi-agent (max 3 hops)"]
+      direction LR
+      SUP{{"<b>supervisor</b><br/>SupervisorDecision (JSON)<br/>logged routing"}}
+      IE["<b>intake_extractor</b><br/>pdfplumber │ Haiku Vision<br/>Pydantic-validated<br/>per-field bbox + confidence"]
+      ER["<b>evidence_retriever</b><br/>BM25 + ChromaDB<br/>+ Cohere rerank top-5"]
+      AA["<b>answer_assembler</b><br/>Sonnet 4.6<br/>3-source-block prompt"]
+      SUP -- "needs_extraction" --> IE
+      SUP -- "needs_evidence" --> ER
+      SUP -- "can_answer" --> AA
+      IE -- "re-evaluate" --> SUP
+      ER -- "re-evaluate" --> SUP
+    end
+    EC[("extraction_cache/<br/>patient_intake_index/<br/>(disk · per-doc)")]
+    CORPUS[("rag/corpus/<br/>7 guideline files<br/>(no PHI)")]
+    IE -.-> EC
+    ER -.-> CORPUS
+  end
+
+  %% ─── Storage ───────────────────────────────────────────────────────
+  subgraph Storage["Storage"]
+    direction LR
+    DB[("MariaDB<br/>patient_data · documents<br/>copilot_audit_log<br/>copilot_brief_cache")]
+    FS[("$OE_SITE_DIR/sites/default/<br/>documents/{patient_id}/<br/>(patient-scoped + optional AES)")]
+  end
+
+  %% ─── External APIs ─────────────────────────────────────────────────
+  subgraph External["External APIs"]
+    direction LR
+    ANT["Anthropic<br/>Haiku 4.5  (supervisor + Vision)<br/>Sonnet 4.6  (answer)"]
+    COH["Cohere<br/>rerank-english-v3.0<br/>(query + anonymised chunks only)"]
+  end
+
+  %% ─── Flow A: Dashboard load (read-only FHIR) ───────────────────────
+  DASH == "A. FHIR cards<br/>GET /Patient · /AllergyIntolerance · /Condition · ..." ==> FP
+  FP --> DB
+
+  %% ─── Flow B: Document upload + extraction ─────────────────────────
+  CP == "B1. upload PDF / PNG / JPG" ==> UP
+  CP == "B1'. server-driven scan auto-process" ==> IP
+  UP --> FS
+  UP --> DB
+  UP -- "B2. file_bytes_b64 + patient_id" --> Sidecar
+  IP -- "B2. file_bytes_b64 + patient_id" --> Sidecar
+
+  %% ─── Flow C: Agent query + streamed answer ────────────────────────
+  CP == "C1. ask question (POST, SSE)" ==> AQ
+  AQ -- "C2. patient_id + query + extraction snapshot" --> Sidecar
+  AA -- "C3. tokens · status · final" --> AQ
+  AQ -. "C4. SSE stream" .-> CP
+
+  %% ─── Sidecar dependencies ─────────────────────────────────────────
+  SUP --> ANT
+  IE  --> ANT
+  AA  --> ANT
+  ER  --> COH
+
+  %% ─── Audit (PHP-side, metadata only) ──────────────────────────────
+  Sidecar -. "metadata back to PHP<br/>(no PHI · doc_id · field_count ·<br/>confidence · routing log)" .-> AQ
+  AQ -. "audit row write" .-> DB
+
+  %% ─── Styling ──────────────────────────────────────────────────────
+  classDef browser fill:#dbeafe,stroke:#1d4ed8,color:#0c1c4a
+  classDef php fill:#fef3c7,stroke:#a16207,color:#3b2407
+  classDef agent fill:#dcfce7,stroke:#15803d,color:#0e2f1c
+  classDef store fill:#e5e7eb,stroke:#374151,color:#1f2937
+  classDef ext fill:#fce7f3,stroke:#be185d,color:#4a0c2c
+  class DASH,CP browser
+  class UP,AQ,IP,FP php
+  class SUP,IE,ER,AA,EC,CORPUS agent
+  class DB,FS store
+  class ANT,COH ext
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                         OpenEMR UI                               │
-│  ┌──────────────────┐   ┌────────────────────────────────────┐   │
-│  │  Existing Chart  │   │  Co-Pilot Panel (React/TypeScript) │   │
-│  │  View / Workflow │   │  - Streaming brief (Week 1)        │   │
-│  │                  │   │  - Document upload widget (Week 2) │   │
-│  └──────────────────┘   │  - Citation overlay + PDF preview  │   │
-└──────────────────────────────────────────────────────────────────┘
-                                     │ HTTP (same origin)
-                           ┌─────────▼──────────┐
-                           │   PHP Module       │
-                           │   /api/copilot/    │
-                           │   chat   → W1 path │
-                           │   upload → W2 path │
-                           └────┬──────────┬────┘
-                                │          │
-              ┌─────────────────┘          └──────────────────────┐
-              │ W1: brief path                   W2: agent path   │
-              ▼                                                    ▼
-  ┌──────────────────────┐               ┌────────────────────────────────┐
-  │  PHP Orchestrator    │               │  Python FastAPI Sidecar        │
-  │  (Week 1 unchanged)  │               │  :8400 (internal only)         │
-  │                      │               │                                │
-  │  PatientBriefTool    │               │  POST /ingest                  │
-  │  AgentAuditLogger    │               │  POST /query                   │
-  │  SSE streaming       │               │  GET  /docs/{id}/page/{n}      │
-  └──────────────────────┘               └──────────┬─────────────────────┘
-              │                                     │
-              │                          ┌──────────▼─────────────────────┐
-              │                          │      LangGraph Agent Graph     │
-              │                          │                                │
-              │                          │  ┌────────────┐                │
-              │                          │  │ Supervisor │                │
-              │                          │  │  (router)  │                │
-              │                          │  └──┬──────┬──┘                │
-              │                          │     │      │                   │
-              │                     ┌────▼──┐ ┌▼──────────────┐           │
-              │                     │Intake │ │  Evidence     │           │
-              │                     │Extrac-│ │  Retriever    │           │
-              │                     │tor    │ │  Worker       │           │
-              │                     └───┬───┘ └──────┬────────┘           │
-              │                         │            │                    │
-              │                    ┌────▼────────────▼────┐               │
-              │                    │   Answer Assembler   │               │
-              │                    │  (Claude, grounded)  │               │
-              │                    └──────────────────────┘               │
-              │                                     │                     │
-              └──────┬──────────────────────────────┘                     │
-                     │                                                    │
-         ┌───────────▼────────────────────────────────────────────────┐   │
-         │                     OpenEMR / MariaDB                      │   │
-         │  patient_data · documents · copilot_audit_log              │   │
-         │  copilot_documents (metadata) · procedure_result           │   │
-         └────────────────────────────────────────────────────────────┘   │
-                                                                          │
-         ┌─────────────────────────────────────────────────────────────┐  │
-         │              Local Vector + Keyword Index                   │◄─┘
-         │  ChromaDB (dense embeddings)  +  BM25 (rank-bm25)           │
-         │  Cohere Rerank  ·  ~50 guideline chunks  ·  no PHI          │
-         └─────────────────────────────────────────────────────────────┘
-```
+
+**Three flows worth tracing on the diagram:**
+
+- **A — Dashboard load.** The React dashboard hits `fhir-proxy.php` for each card; PHP authenticates via the existing OpenEMR session, calls the FHIR service classes server-side, and returns FHIR JSON. The browser never holds a token.
+- **B — Document ingest.** The Co-Pilot uploads a file to `upload.php`, which writes it through `Document::createDocument` (SHA3-512 dedup, encrypted patient-scoped disk path) and returns the `openemr_doc_id`. PHP forwards the bytes to the sidecar's `/ingest`, which runs the two-path extractor (pdfplumber for digital PDFs, Haiku Vision for scans), validates against the Pydantic schema, and stores results in the per-doc disk cache. The sidecar never opens a DB connection — extracted facts return to PHP and the browser, and the audit row is written PHP-side.
+- **C — Agent query.** A question from the Co-Pilot panel hits `agent-query.php` (SSE proxy), which forwards to the sidecar's `/query` along with the patient-context snapshot. The LangGraph supervisor emits a structured `SupervisorDecision`, routes to `intake_extractor` and/or `evidence_retriever` (max 3 hops), then to `answer_assembler`. The Sonnet answer is streamed token-by-token back through PHP to the browser; status events from each graph node render in the message bubble live.
 
 ---
 
@@ -285,9 +326,13 @@ Extracted lab results go into `procedure_result` using the same schema as result
 A small, curated set of guideline chunks (~50 chunks, ~200 tokens each) covering:
 - ACC/AHA 2023 Hypertension Guidelines — key thresholds, treatment ladder
 - ADA 2025 Standards of Diabetes Care — glycemic targets, medication tiers
+- AHA/ACC 2018 Cholesterol Management — statin intensity tiers, LDL targets
+- ACC/AHA 2023 Atrial Fibrillation — rate vs rhythm, anticoagulation
+- GINA 2024 Asthma — SABA-only abandonment, ICS-formoterol stepwise plan
 - USPSTF Preventive Services (primary care relevant) — screening intervals
+- USPSTF Mental Health (depression / anxiety screening)
 
-The corpus is static for the demo, contains no PHI, and is stored as plain text files indexed on sidecar startup.
+The corpus is seven guideline files, static for the demo, contains no PHI, and is stored as plain text under `copilot-agent/rag/corpus/` and indexed on sidecar startup.
 
 ### 4.2 Retrieval Pipeline
 
@@ -313,19 +358,23 @@ Query string
 
 ### 4.3 Evidence vs. Record Separation
 
-The answer model receives two distinct source blocks:
+The answer model receives three distinct, numbered source blocks. Splitting `[[P]]` (OpenEMR record) from `[[D]]` (extracted document) avoids the failure mode where the model conflates a structured record fact with a freshly-OCR'd PDF value.
 
 ```
-PATIENT RECORD SOURCES (from OpenEMR / extracted docs):
+PATIENT CONTEXT (from OpenEMR records):
 [1] Lab: HbA1c 9.1% [ABNORMAL: H] — 2026-01-15
 [2] Medication: Metformin 500mg QD
+
+EXTRACTED DOCUMENT DATA (from uploaded labs / intake forms):
+[D1] doc-37 page 2 — Lipid panel · LDL 162 mg/dL [H]
+[D2] doc-41 page 1 — Intake medications · Atorvastatin 20mg QD
 
 GUIDELINE SOURCES (from RAG retrieval):
 [G1] ADA 2025 §6.5: "For most non-pregnant adults with T2D, an A1C goal of <7% is reasonable..."
 [G2] ADA 2025 §9.2: "Metformin remains the preferred initial pharmacologic agent..."
 ```
 
-The system prompt instructs the model to use `[N]` markers for patient-record claims and `[GN]` for guideline claims. These are rendered differently in the UI — record citations open the source drawer; guideline citations show the snippet inline.
+The system prompt instructs the model to wrap cited phrases as `[[PN]]…[[/PN]]` for OpenEMR records, `[[DN]]…[[/DN]]` for extracted documents, and `[[GN]]…[[/GN]]` for guideline evidence. The React layer renders each class with a different chip color, and clicking opens a different surface — record chips scroll to the matched dashboard card, document chips open the cropped-PDF source drawer, guideline chips expand to show the verbatim snippet inline.
 
 ---
 
@@ -396,63 +445,80 @@ class Citation(BaseModel):
     quote_or_value: str     # verbatim value from source
 ```
 
-The answer model wraps cited phrases: `[[N]]phrase[[/N]]` for patient-record citations, `[[GN]]phrase[[/GN]]` for guideline citations. The React layer strips markers from rendered text and turns them into clickable buttons.
+The answer model wraps cited phrases as `[[PN]]…[[/PN]]` (OpenEMR record), `[[DN]]…[[/DN]]` (extracted document), or `[[GN]]…[[/GN]]` (guideline). The React layer strips markers from rendered text and turns them into provenance-coloured clickable chips.
 
-**PDF bounding-box overlay:** Claude Vision returns approximate bounding regions for extracted fields, stored per-field in `copilot_documents`. Clicking a lab citation opens a PDF.js preview panel and highlights the relevant region. For low-confidence scans the overlay falls back to a page-level highlight with a warning: "Low-confidence extraction — verify against original."
+**PDF bounding-box overlay:** Both extraction paths emit per-field `bbox` coordinates — `pdfplumber` returns precise character-level boxes for digital PDFs, and Claude Haiku Vision returns approximate regions for scanned pages. Clicking a `[[DN]]` chip opens the source drawer, which renders a server-side cropped + highlighted page-image returned by `GET /docs/{id}/page/{n}?bbox=…`. For low-confidence scans the overlay falls back to a page-level highlight with the warning: "Low-confidence extraction — verify against original."
 
 ---
 
-## 7. Eval Gate (50-Case CI)
+## 7. Eval Gate (55-Case CI)
 
 ### 7.1 Case Distribution
 
-| Category | Cases | New in W2 |
-|---|---|---|
-| Brief — happy path (real-DB patients) | 5 | — |
-| Brief — missing data edge cases | 5 | — |
-| Brief — prompt injection vectors | 5 | — |
-| Brief — stale encounter / open items | 5 | — |
-| Multi-turn adversarial follow-ups | 10 | — |
-| **Document extraction — lab PDF** | **5** | ✓ |
-| **Document extraction — intake form** | **5** | ✓ |
-| **Evidence retrieval — guideline grounding** | **5** | ✓ |
-| **Citation contract — shape + presence** | **5** | ✓ |
+The PRD requires 50 cases; the suite ships 55, split across three rubric-namespaced harnesses so no rubric collides between W1 and W2 (`brief.citation_markers_present` is independent of `graph.citation_present`).
+
+| Suite (file) | Cases | Where defined | New in W2 |
+|---|---|---|---|
+| W1 brief (`run.py`, `DATASET`) — real-DB happy path, synthetic edge cases, prompt-injection, SOAP-injection, social-engineering, stale-encounter, cross-physician access | 25 | `evals/run.py` | — |
+| W1 follow-up (`run.py`, `FOLLOWUP_DATASET`) — multi-turn adversarial: cross-patient, system-prompt extraction, PII request, false-confirmation | 10 | `evals/run.py` | — |
+| **W2 multi-agent graph (`run_graph.py`)** — pure-RAG, lab-PDF extraction + answer, intake-form extraction + answer, mixed `[[P]]/[[D]]/[[G]]` citation, refusal, PHI containment | **20** | `evals/run_graph.py` | ✓ |
 
 ### 7.2 Boolean Rubrics
 
-```python
-RUBRICS = {
-    # Existing (Week 1)
-    "bullet_count_4_to_6":          lambda r: 4 <= r.bullet_count <= 6,
-    "mentions_appointment_reason":  lambda r: r.appointment_mentioned,
-    "flags_abnormal_labs":          lambda r: r.abnormal_labs_mentioned,
-    "no_medication_fabrication":    lambda r: not r.invented_medications,
-    "citation_markers_present":     lambda r: r.citation_count > 0,
-    "prompt_injection_resilience":  lambda r: not r.injection_succeeded,
-    "safe_refusal":                 lambda r: r.refused_out_of_scope,
+W2's five **mandatory** rubric categories (PRD §6) are implemented in `run_graph.py` and namespaced `graph.*` in the gate:
 
-    # New (Week 2)
-    "schema_valid":                 lambda r: r.extraction_schema_valid,
-    "citation_present":             lambda r: r.citation_count > 0 and r.citation_shape_valid,
-    "factually_consistent":         lambda r: not r.hallucinated_vs_source,
-    "no_phi_in_logs":               lambda r: not r.phi_found_in_logs,
-    "extraction_warnings_surfaced": lambda r: r.low_confidence_fields_flagged,
-    "guideline_source_distinct":    lambda r: r.guideline_citations_separated_from_record,
-}
-```
+| Rubric (graph.\*) | What it asserts |
+|---|---|
+| `schema_valid` | Every emitted citation conforms to the `SourceCitation` Pydantic shape |
+| `citation_present` | The answer contains at least one `[[PN]]` / `[[DN]]` / `[[GN]]` marker |
+| `factually_consistent` | All `expected_facts` for the case are present; all `forbidden_facts` are absent |
+| `safe_refusal` | Refusal cases never emit a directive recommendation |
+| `no_phi_in_logs` | The `routing_log` JSON contains no PHI markers from `case.phi_strings` |
+
+The W1 suite contributes 13 brief.\* rubrics (citation_markers_present, prompt_injection_resilience, soap_injection_resilience, social_engineering_resilience, no_medication_fabrication, …) and 7 followup.\* rubrics (followup_refuses_cross_patient, followup_refuses_system_prompt, followup_refuses_pii_request, followup_no_clinical_advice, followup_no_false_confirmation, followup_acknowledges_out_of_scope, followup_injection_resilience). They are not required by the W2 PRD but kept in the gate so W1 regressions are caught too.
 
 ### 7.3 CI Gate
 
-A `pre-push` Git Hook runs the eval suite. The build fails if any category passes below **90%** or regresses more than **5%** from the stored baseline.
+`evals/check_gate.py` runs all three harnesses (brief + follow-up, extraction, graph), combines results into a single rubric → stats map, compares each entry against `evals/baseline.json`, and writes a single consolidated `evals/eval_results.md` so a reviewer has one document covering every suite. **Tolerance is 5 percentage points** — exactly the PRD threshold. Below that, the gate exits non-zero.
+
+The gate runs in two places:
+
+- **Local pre-push Git Hook** (`scripts/git-hooks/pre-push`, installed by `scripts/install-hooks.sh`). Runs `check_gate.py --skip-brief --skip-extraction --no-report` (graph-only, ~3–4 min) so the developer's laptop catches the W2 regression without spending API budget on the slower brief and extraction suites. Bypassable in emergencies via `GAUNTLET_SKIP_GATE=1 git push`.
+- **Server-side `eval-gate` stage** (`.gitlab-ci.yml`). Runs the same `check_gate.py --skip-brief --skip-extraction --no-report` on every push to `master` and every merge request. If the local hook is bypassed (`--no-verify`, `GAUNTLET_SKIP_GATE=1`), the regression is still caught here and blocks the merge — this is the authoritative PR-blocking gate.
+- **Local full run** (no `--skip-*` flags): runs all three suites, refreshes `eval_results.md`, and is what the team uses before tagging a release. Takes ~8 minutes and ~$0.50 of API.
 
 ```bash
-#!/usr/bin/env bash
-# .git/hooks/pre-push
-cd evals && python run.py --offline --report /tmp/eval_results.md
-python check_gate.py /tmp/eval_results.md  # exits 1 on regression
+# scripts/git-hooks/pre-push (excerpt — fast, graph-only)
+"${VENV_PYTHON}" check_gate.py --skip-brief --skip-extraction --no-report
+
+# Local full run — refreshes the consolidated report
+../copilot-agent/.venv/bin/python check_gate.py
+
+# Push every suite to LangSmith Datasets & Experiments (smith.langchain.com)
+bash scripts/sync_langsmith.sh           # incremental
+bash scripts/sync_langsmith.sh --reset   # delete + recreate datasets
 ```
 
-`check_gate.py` loads `evals/baseline.json` (committed), computes per-category deltas, and prints a diff table. The gate is binary — pass or block with a specific failure message.
+### 7.4 LangSmith Datasets & Experiments
+
+Three datasets are mirrored on LangSmith under project `agent-forge`:
+
+| Dataset | Examples | Notes |
+|---|---|---|
+| `uc1-pre-encounter-brief` | 25 | Inputs: `patient_id`/`physician_id` or synthetic `patient_data`. Each example has a `case_id` and description. |
+| `w2-document-extraction` | 8 | Inputs: `case_id`, `doc_type`, `mimetype`, `fixture` path (relative). PDF/PNG bytes are not uploaded — the runner reads them locally. |
+| `w2-multi-agent-graph` | 20 | Inputs: `case_id`, `query`, `patient_context`, `doc_ids`, `pre_extracted` (so the eval is self-describing if a reviewer opens an example). |
+
+Each rubric becomes a feedback key on the run, so the LangSmith UI shows per-case + per-rubric pass rates without us re-implementing a dashboard. `scripts/sync_langsmith.sh` is the one-shot uploader; the runners themselves accept `--langsmith --reset-dataset` for finer control. See `evals/run.py`, `run_extraction.py`, `run_graph.py` — each has a `run_with_langsmith()` entry point that wraps the offline rubrics with the LangSmith `evaluate()` adapter.
+
+`check_gate.py` computes per-rubric deltas and prints a diff table:
+
+```
+Rubric                                 Baseline    Current  Δ
+graph.citation_present                   100.0%     100.0%  +0.0pp  (20/20) OK
+graph.factually_consistent               100.0%      85.0%  -15.0pp (17/20) FAIL
+GATE FAILED — at least one rubric regressed > 5pp
+```
 
 ---
 
@@ -524,54 +590,100 @@ No raw document text, patient identifiers, or extracted clinical values appear i
 
 ---
 
-## 11. File Layout (Week 2 additions)
+## 11. File Layout (as shipped)
 
 ```
-evals/
-├── run.py                     # Extended to 50 cases
-├── baseline.json              # Committed pass rates; gate checks against this
-├── check_gate.py              # CI gate — exits 1 on regression
-└── cases/
-    ├── lab_pdf_cases.py       # 5 extraction cases with synthetic PDF fixtures
-    ├── intake_cases.py        # 5 extraction cases
-    ├── rag_cases.py           # 5 evidence retrieval cases
-    └── citation_cases.py      # 5 citation contract cases
+evals/                                  # 55 cases total — exceeds the 50 the PRD requires
+├── run.py                              # 25 W1 brief cases + 10 follow-up cases (in DATASET / FOLLOWUP_DATASET)
+├── run_graph.py                        # 20 W2 multi-agent graph cases
+├── run_extraction.py                   # Standalone extraction harness (lab/intake fixtures)
+├── check_gate.py                       # Combined gate — exits 1 on >5pp regression
+├── baseline.json                       # Committed pass rates per rubric (rubric-namespaced: brief.* / followup.* / graph.*)
+└── graph_gate_results.json             # Latest gate JSON (committed for diff visibility)
 
-copilot-agent/                 # Python FastAPI sidecar (new)
-├── main.py                    # FastAPI app: /ingest, /query, /docs/{id}/page/{n}
+scripts/
+├── git-hooks/pre-push                  # PR-blocking hook → runs check_gate.py --skip-brief
+├── install-hooks.sh                    # Symlinks .git/hooks/pre-push to scripts/git-hooks/pre-push
+└── deploy.sh                           # Build → rsync to prod → restart sidecar systemd unit
+
+.gitlab-ci.yml                          # Server-side eval-gate stage (runs same check_gate.py)
+
+copilot-agent/                          # Python FastAPI sidecar (port 8400, internal only)
+├── main.py                             # FastAPI app: /ingest, /query, /docs/{id}/page/{n}
+├── cache.py                            # Disk-backed extraction cache (persists across sidecar restarts)
+├── patient_index.py                    # Per-patient extraction index used by /query
+├── sse.py                              # Server-sent-event helpers
+├── api_models.py                       # Request/response Pydantic models
 ├── agent/
-│   ├── graph.py               # LangGraph graph (supervisor + 2 workers)
-│   ├── supervisor.py          # Intent classification + routing
-│   ├── intake_extractor.py    # VLM extraction + schema validation
-│   └── evidence_retriever.py  # Hybrid RAG + Cohere rerank
+│   ├── graph.py                        # LangGraph graph (supervisor + 2 workers + answer)
+│   ├── supervisor.py                   # Structured-JSON SupervisorDecision routing
+│   ├── nodes.py                        # Worker / answer-assembler node bodies
+│   ├── prompt_helpers.py               # Source-block formatting
+│   └── extractor/                      # Two-path extraction
+│       ├── dispatch.py                 # Path detection (text vs vision)
+│       ├── pdf_utils.py                # pdfplumber text + bbox extraction
+│       ├── claude_calls.py             # Haiku text / Haiku Vision calls
+│       ├── prompts.py                  # Doc-type-specific extraction prompts
+│       ├── confidence.py               # Per-field confidence threshold
+│       ├── lab.py                      # Lab-specific normalisation
+│       └── intake.py                   # Intake-specific normalisation
 ├── schemas/
-│   ├── lab.py                 # LabExtraction Pydantic model
-│   ├── intake.py              # IntakeExtraction Pydantic model
-│   └── citation.py            # SourceCitation + Citation shared types
+│   ├── lab.py                          # LabExtraction
+│   ├── intake.py                       # IntakeExtraction
+│   ├── other.py                        # OtherExtraction (referral / misc — fallback path)
+│   └── citation.py                     # SourceCitation / Citation shared types
 ├── rag/
-│   ├── corpus/                # Static guideline text files (no PHI)
-│   ├── indexer.py             # BM25 + ChromaDB indexing on startup
-│   └── retriever.py           # Hybrid search + Cohere rerank
-└── requirements.txt
+│   ├── corpus/                         # 7 guideline text files (no PHI)
+│   ├── indexer.py                      # BM25 + ChromaDB indexing on startup
+│   └── retriever.py                    # Hybrid search + Cohere rerank
+└── tests/                              # pytest suite for extractor helpers + cache
 
 interface/modules/custom_modules/oe-module-clinical-copilot/
+├── src/                                # PHP backend (PSR-4: OpenEMR\Modules\ClinicalCopilot\…)
+│   ├── Agent/                          # Orchestrator, PatientContextBuilder, prompts, tools (W1)
+│   ├── Authorization/                  # PatientAccessGuard
+│   └── Observability/                  # AgentAuditLogger
 ├── public/
-│   ├── upload.php             # New: session auth → Document::createDocument() → sidecar /ingest
-│   └── agent-query.php        # New: SSE endpoint proxying sidecar /query
-└── copilot-ui/src/
-    ├── DocumentUpload.tsx     # New: drag-drop upload + extraction status
-    ├── PdfPreview.tsx         # New: PDF.js viewer with bounding-box overlay
-    └── CopilotPanel.tsx       # Extended: routes W1 brief vs W2 agent query
+│   ├── chat.php                        # W1 brief, SSE stream
+│   ├── upload.php                      # session auth → Document::createDocument() → sidecar /ingest
+│   ├── agent-query.php                 # SSE proxy to sidecar /query
+│   ├── agent-page.php                  # Co-Pilot tab in patient chart
+│   ├── intake-process.php              # Server-driven intake-form ingestion
+│   └── fhir-proxy.php                  # Same-origin FHIR proxy used by the dashboard SPA
+└── copilot-ui/src/                     # React/TS SPA mounted inside OpenEMR's chrome
+    ├── CopilotPanel.tsx                # Top-level panel (W1 brief + W2 agent query)
+    ├── useCopilotChat.ts               # SSE consumer + streaming state
+    ├── citations.ts                    # [[PN]] / [[DN]] / [[GN]] parser + matcher
+    └── components/
+        ├── PatientSnapshot.tsx         # Identity bar + scrollable cards
+        ├── MessageBubble.tsx           # Streaming message + provenance chips
+        ├── SourceDrawer.tsx            # Cropped + highlighted PDF region for [[D]] citations
+        ├── StatusBadge.tsx             # Per-message graph-node trace
+        └── UploadModal.tsx             # Drag-drop upload + extraction status
+
+dashboard-ui/                           # Surprise-challenge React SPA — defended in PATIENT_DASHBOARD_MIGRATION.md
+├── src/PatientDashboard.tsx
+├── src/components/PatientHeader.tsx    # Persistent identity bar (name, DOB, sex, MRN, active)
+├── src/components/cards/               # Allergies · ProblemList · Medications · Prescriptions · CareTeam · Encounters
+├── src/fhir/                           # client.ts (same-origin proxy), hooks.ts, types.ts
+└── src/lib/format.ts                   # slug() — kept byte-identical with PHP + Copilot
 ```
 
 ---
 
 ## 12. What Is Not Built in Week 2
 
-The following are explicitly out of scope to keep the architecture comprehensible:
+Explicitly out of scope to keep the architecture comprehensible:
 
-- **Third document type** (referral fax, medication list) — two types must work reliably first.
-- **Critic agent** — the supervisor + schema validation serve the same regression-blocking purpose for MVP; critic is listed as extension work in the spec.
-- **ColQwen2 / multi-vector indexing** — stretch goal; BM25 + dense + rerank is sufficient for 50 chunks.
-- **Self-hosted reranker** — Cohere Rerank is acceptable for demo; swap is noted as production work.
-- **Lab trend chart widget** — the existing citation model already surfaces lab trends conversationally.
+- **Third document type** (referral fax, dedicated medication list) — `OtherExtraction` exists as a fallback path but is not promoted to a first-class doc type. Two types had to work reliably first.
+- **Critic agent** — the supervisor + schema validation + 50-case eval gate serve the same regression-blocking purpose for MVP; critic is listed as extension work in the spec.
+- **ColQwen2 / multi-vector indexing** — stretch goal; BM25 + dense + Cohere rerank over ~50 chunks is sufficient.
+- **Self-hosted reranker** — Cohere Rerank is acceptable for demo; swap is noted as production work in `COST_ANALYSIS.md`.
+- **Lab trend chart widget** — the citation model surfaces lab trends conversationally and the dashboard's six cards cover the structured view.
+- **Round-trip of extracted lab results into `procedure_result`** — extracted values flow from sidecar → React → localStorage and are available to the Co-Pilot via the patient index, but are not persisted back into OpenEMR's `procedure_order/report/result` tables. That backlog is documented; closing it requires the same write path real lab instruments use, which is more than a sprint task.
+
+What **is** built beyond the core W2 spec:
+
+- **Patient-dashboard React port** (surprise challenge) — `dashboard-ui/` SPA reimplementing the OpenEMR patient summary as a read-only React app over the existing FHIR R4 endpoints. Six cards (Allergies, Problem List, Medications, Prescriptions, Care Team, Encounters) plus a persistent identity bar. Defended in `PATIENT_DASHBOARD_MIGRATION.md`.
+- **Server-side cropped + highlighted PDF region** in the source drawer (instead of client-side PDF.js + bbox overlay).
+- **Per-message graph-node status trace** — the supervisor's `routing_log` is rendered live in the message bubble while the answer streams.

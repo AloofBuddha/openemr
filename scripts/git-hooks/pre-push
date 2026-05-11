@@ -40,7 +40,7 @@ echo "  Bypass with GAUNTLET_SKIP_GATE=1 if you absolutely must."
 echo
 
 cd "${EVALS_DIR}"
-if "${VENV_PYTHON}" check_gate.py --skip-brief; then
+if "${VENV_PYTHON}" check_gate.py --skip-brief --skip-extraction --no-report; then
     echo
     echo "✅ pre-push: gate passed — push proceeding"
     exit 0

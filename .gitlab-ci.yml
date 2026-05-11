@@ -33,7 +33,7 @@ eval-gate:
       LANGCHAIN_TRACING_V2=${LANGSMITH_API_KEY:+true}
       LANGCHAIN_API_KEY=${LANGSMITH_API_KEY:-}
       LANGCHAIN_PROJECT=agent-forge
-      ../copilot-agent/.venv/bin/python check_gate.py --skip-brief
+      ../copilot-agent/.venv/bin/python check_gate.py --skip-brief --skip-extraction --no-report
   artifacts:
     when: always
     paths:

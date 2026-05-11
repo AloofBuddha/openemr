@@ -1,7 +1,11 @@
 # Per-run eval artifacts — regenerated every gate run.
 # baseline.json IS committed (it's the gate's reference point).
+# eval_results.md IS committed (the consolidated, human-readable canonical report).
 brief_gate_results.json
+extraction_gate_results.json
 graph_gate_results.json
-graph_results.json
+# Legacy per-suite reports — superseded by the consolidated eval_results.md
+extraction_results.md
 graph_results.md
+graph_results.json
 __pycache__/
